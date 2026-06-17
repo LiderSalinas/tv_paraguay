@@ -10,7 +10,7 @@ class Channel {
   final Map<String, String> httpHeaders;
   final bool isActive;
 
-  const Channel({
+  Channel({
     required this.id,
     required this.name,
     required this.shortName,
@@ -23,35 +23,18 @@ class Channel {
     required this.isActive,
   });
 
-  bool get isHls => playerType.toLowerCase() == 'hls';
-
-  bool get isWebView => playerType.toLowerCase() == 'webview';
-
-  String get playbackUrl {
-    if (isWebView) return webUrl;
-    return streamUrl;
-  }
-
   factory Channel.fromJson(Map<String, dynamic> json) {
-    final rawHeaders = json['httpHeaders'];
-
     return Channel(
-      id: json['id'] is int
-          ? json['id']
-          : int.tryParse(json['id']?.toString() ?? '0') ?? 0,
-      name: json['name']?.toString() ?? '',
-      shortName: json['shortName']?.toString() ?? '',
-      category: json['category']?.toString() ?? 'General',
-      playerType: json['playerType']?.toString() ??
-          _detectPlayerType(
-            json['streamUrl']?.toString() ?? '',
-            json['webUrl']?.toString() ?? '',
-          ),
-      streamUrl: json['streamUrl']?.toString() ?? '',
-      webUrl: json['webUrl']?.toString() ?? '',
-      logoUrl: json['logoUrl']?.toString() ?? '',
-      httpHeaders: _parseHeaders(rawHeaders),
-      isActive: json['isActive'] is bool ? json['isActive'] : true,
+      id: json['id'] ?? 0,
+      name: json['name'] ?? '',
+      shortName: json['shortName'] ?? '',
+      category: json['category'] ?? '',
+      playerType: json['playerType'] ?? 'hls',
+      streamUrl: json['streamUrl'] ?? '',
+      webUrl: json['webUrl'] ?? '',
+      logoUrl: json['logoUrl'] ?? '',
+      httpHeaders: Map<String, String>.from(json['httpHeaders'] ?? {}),
+      isActive: json['isActive'] ?? true,
     );
   }
 
@@ -70,26 +53,17 @@ class Channel {
     };
   }
 
-  static String _detectPlayerType(String streamUrl, String webUrl) {
-    if (webUrl.isNotEmpty && streamUrl.isEmpty) {
-      return 'webview';
+  bool get isWebView => playerType.toLowerCase() == 'webview';
+
+  bool get isHls => playerType.toLowerCase() == 'hls';
+
+  String get playerLabel {
+    final type = playerType.trim().toUpperCase();
+
+    if (type.isEmpty) {
+      return 'HLS';
     }
 
-    return 'hls';
-  }
-
-  static Map<String, String> _parseHeaders(dynamic rawHeaders) {
-    if (rawHeaders == null) return {};
-
-    if (rawHeaders is Map) {
-      return rawHeaders.map(
-        (key, value) => MapEntry(
-          key.toString(),
-          value.toString(),
-        ),
-      );
-    }
-
-    return {};
+    return type;
   }
 }
