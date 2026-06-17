@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -25,6 +27,11 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isFullScreen = false;
   String _errorMessage = '';
 
+  String _typedChannelNumber = '';
+  bool _showChannelNumberOverlay = false;
+  bool _channelNumberNotFound = false;
+  Timer? _channelNumberTimer;
+
   int get _selectedIndex {
     if (_selectedChannel == null) return -1;
 
@@ -47,6 +54,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _channelNumberTimer?.cancel();
     _tvFocusNode.dispose();
     _scrollController.dispose();
 
@@ -95,9 +103,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _selectChannel(Channel channel) {
+    final index = _channels.indexWhere((item) => item.id == channel.id);
+
     setState(() {
       _selectedChannel = channel;
     });
+
+    if (index >= 0) {
+      _scrollToSelected(index);
+    }
 
     _requestTvFocus();
   }
@@ -141,7 +155,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _scrollToSelected(int index) {
     if (!_scrollController.hasClients) return;
 
-    const itemHeight = 86.0;
+    const itemHeight = 98.0;
     final targetOffset = (index * itemHeight) - 120;
 
     final min = _scrollController.position.minScrollExtent;
@@ -195,12 +209,150 @@ class _HomeScreenState extends State<HomeScreen> {
     await _toggleFullScreen();
   }
 
+  void _handleDigitInput(String digit) {
+    if (_channels.isEmpty) return;
+
+    _channelNumberTimer?.cancel();
+
+    String nextNumber = _typedChannelNumber + digit;
+
+    if (nextNumber.length > 3) {
+      nextNumber = digit;
+    }
+
+    if (nextNumber.startsWith('0') && nextNumber.length > 1) {
+      nextNumber = nextNumber.replaceFirst(RegExp(r'^0+'), '');
+      if (nextNumber.isEmpty) {
+        nextNumber = '0';
+      }
+    }
+
+    setState(() {
+      _typedChannelNumber = nextNumber;
+      _showChannelNumberOverlay = true;
+      _channelNumberNotFound = false;
+    });
+
+    _channelNumberTimer = Timer(
+      const Duration(milliseconds: 950),
+      _confirmTypedChannelNumber,
+    );
+  }
+
+  void _confirmTypedChannelNumber() {
+    if (_typedChannelNumber.trim().isEmpty) {
+      _hideChannelNumberOverlay();
+      return;
+    }
+
+    final number = int.tryParse(_typedChannelNumber);
+
+    if (number == null) {
+      _hideChannelNumberOverlay();
+      return;
+    }
+
+    final index = _channels.indexWhere((channel) => channel.id == number);
+
+    if (index >= 0) {
+      _selectChannelByIndex(index);
+
+      _channelNumberTimer?.cancel();
+      _channelNumberTimer = Timer(
+        const Duration(milliseconds: 450),
+        _hideChannelNumberOverlay,
+      );
+    } else {
+      setState(() {
+        _channelNumberNotFound = true;
+      });
+
+      _channelNumberTimer?.cancel();
+      _channelNumberTimer = Timer(
+        const Duration(milliseconds: 900),
+        _hideChannelNumberOverlay,
+      );
+    }
+  }
+
+  void _hideChannelNumberOverlay() {
+    if (!mounted) return;
+
+    setState(() {
+      _typedChannelNumber = '';
+      _showChannelNumberOverlay = false;
+      _channelNumberNotFound = false;
+    });
+
+    _requestTvFocus();
+  }
+
+  String? _digitFromKey(LogicalKeyboardKey key) {
+    if (key == LogicalKeyboardKey.digit0 ||
+        key == LogicalKeyboardKey.numpad0) {
+      return '0';
+    }
+
+    if (key == LogicalKeyboardKey.digit1 ||
+        key == LogicalKeyboardKey.numpad1) {
+      return '1';
+    }
+
+    if (key == LogicalKeyboardKey.digit2 ||
+        key == LogicalKeyboardKey.numpad2) {
+      return '2';
+    }
+
+    if (key == LogicalKeyboardKey.digit3 ||
+        key == LogicalKeyboardKey.numpad3) {
+      return '3';
+    }
+
+    if (key == LogicalKeyboardKey.digit4 ||
+        key == LogicalKeyboardKey.numpad4) {
+      return '4';
+    }
+
+    if (key == LogicalKeyboardKey.digit5 ||
+        key == LogicalKeyboardKey.numpad5) {
+      return '5';
+    }
+
+    if (key == LogicalKeyboardKey.digit6 ||
+        key == LogicalKeyboardKey.numpad6) {
+      return '6';
+    }
+
+    if (key == LogicalKeyboardKey.digit7 ||
+        key == LogicalKeyboardKey.numpad7) {
+      return '7';
+    }
+
+    if (key == LogicalKeyboardKey.digit8 ||
+        key == LogicalKeyboardKey.numpad8) {
+      return '8';
+    }
+
+    if (key == LogicalKeyboardKey.digit9 ||
+        key == LogicalKeyboardKey.numpad9) {
+      return '9';
+    }
+
+    return null;
+  }
+
   KeyEventResult _handleTvRemoteKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) {
       return KeyEventResult.ignored;
     }
 
     final key = event.logicalKey;
+    final digit = _digitFromKey(key);
+
+    if (digit != null) {
+      _handleDigitInput(digit);
+      return KeyEventResult.handled;
+    }
 
     if (key == LogicalKeyboardKey.arrowDown ||
         key == LogicalKeyboardKey.channelDown ||
@@ -220,7 +372,13 @@ class _HomeScreenState extends State<HomeScreen> {
         key == LogicalKeyboardKey.select ||
         key == LogicalKeyboardKey.numpadEnter ||
         key == LogicalKeyboardKey.space) {
-      _toggleFullScreen();
+      if (_typedChannelNumber.isNotEmpty) {
+        _channelNumberTimer?.cancel();
+        _confirmTypedChannelNumber();
+      } else {
+        _toggleFullScreen();
+      }
+
       return KeyEventResult.handled;
     }
 
@@ -237,6 +395,11 @@ class _HomeScreenState extends State<HomeScreen> {
     if (key == LogicalKeyboardKey.escape ||
         key == LogicalKeyboardKey.goBack ||
         key == LogicalKeyboardKey.browserBack) {
+      if (_typedChannelNumber.isNotEmpty) {
+        _hideChannelNumberOverlay();
+        return KeyEventResult.handled;
+      }
+
       if (_isFullScreen) {
         _exitFullScreen();
         return KeyEventResult.handled;
@@ -274,7 +437,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ],
                 ),
-          body: _buildBody(),
+          body: Stack(
+            children: [
+              Positioned.fill(
+                child: _buildBody(),
+              ),
+              _buildChannelNumberOverlay(),
+            ],
+          ),
         ),
       ),
     );
@@ -358,6 +528,76 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildChannelNumberOverlay() {
+    if (!_showChannelNumberOverlay || _typedChannelNumber.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final title = _channelNumberNotFound
+        ? 'Canal no disponible'
+        : 'Canal $_typedChannelNumber';
+
+    return Positioned(
+      top: _isFullScreen ? 24 : 86,
+      right: 22,
+      child: IgnorePointer(
+        child: AnimatedOpacity(
+          opacity: _showChannelNumberOverlay ? 1 : 0,
+          duration: const Duration(milliseconds: 160),
+          child: Container(
+            width: 150,
+            padding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 14,
+            ),
+            decoration: BoxDecoration(
+              color: _channelNumberNotFound
+                  ? Colors.redAccent.withValues(alpha: 0.92)
+                  : Colors.black.withValues(alpha: 0.84),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.16),
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _typedChannelNumber,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 42,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildTvBoxHint() {
     return Positioned(
       left: 16,
@@ -372,7 +612,7 @@ class _HomeScreenState extends State<HomeScreen> {
           borderRadius: BorderRadius.circular(12),
         ),
         child: const Text(
-          '↑ ↓ cambiar canal  ·  OK pantalla completa  ·  ← volver',
+          '↑ ↓ cambiar canal  ·  números: canal directo  ·  OK pantalla completa  ·  ← volver',
           style: TextStyle(
             color: Colors.white70,
             fontSize: 13,
