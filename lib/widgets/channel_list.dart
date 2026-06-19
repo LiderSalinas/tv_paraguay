@@ -7,17 +7,16 @@ class ChannelList extends StatelessWidget {
   final Channel? selectedChannel;
   final ValueChanged<Channel> onChannelSelected;
   final ScrollController? scrollController;
+  final bool compact;
 
   const ChannelList({
     super.key,
     required this.channels,
     required this.selectedChannel,
+    required this.onChannelSelected,
     this.scrollController,
-    ValueChanged<Channel>? onChannelSelected,
-    ValueChanged<Channel>? onChannelTap,
-  }) : onChannelSelected = onChannelSelected ?? onChannelTap ?? _emptyTap;
-
-  static void _emptyTap(Channel channel) {}
+    this.compact = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -27,101 +26,141 @@ class ChannelList extends StatelessWidget {
           'No hay canales disponibles',
           style: TextStyle(
             color: Colors.white70,
-            fontSize: 16,
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
           ),
         ),
       );
     }
 
-    return ListView.builder(
+    return ListView.separated(
       controller: scrollController,
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 18),
+      padding: const EdgeInsets.only(bottom: 12),
       itemCount: channels.length,
+      separatorBuilder: (_, __) => SizedBox(height: compact ? 8 : 12),
       itemBuilder: (context, index) {
         final channel = channels[index];
         final isSelected = selectedChannel?.id == channel.id;
 
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: _ChannelCard(
-            channel: channel,
-            isSelected: isSelected,
-            onTap: () => onChannelSelected(channel),
-          ),
+        return _ChannelTile(
+          channel: channel,
+          isSelected: isSelected,
+          compact: compact,
+          onTap: () => onChannelSelected(channel),
         );
       },
     );
   }
 }
 
-class _ChannelCard extends StatelessWidget {
+class _ChannelTile extends StatelessWidget {
   final Channel channel;
   final bool isSelected;
+  final bool compact;
   final VoidCallback onTap;
 
-  const _ChannelCard({
+  const _ChannelTile({
     required this.channel,
     required this.isSelected,
+    required this.compact,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final backgroundColor = isSelected
-        ? const Color(0xFFFF4655)
-        : const Color(0xFF1E1E22);
+    final channelNumber = channel.id.toString().padLeft(2, '0');
 
-    final borderColor = isSelected
-        ? const Color(0xFFFF6B76)
-        : Colors.white.withOpacity(0.06);
+    final tileHeight = compact ? 78.0 : 92.0;
+    final numberWidth = compact ? 66.0 : 96.0;
+    final logoSize = compact ? 50.0 : 68.0;
+    final nameFontSize = compact ? 20.0 : 25.0;
+    final playSize = compact ? 38.0 : 46.0;
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(18),
         onTap: onTap,
-        focusColor: const Color(0xFFFF4655).withOpacity(0.45),
-        hoverColor: const Color(0xFFFF4655).withOpacity(0.18),
-        splashColor: Colors.white.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(18),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
+          duration: const Duration(milliseconds: 180),
           curve: Curves.easeOut,
-          constraints: const BoxConstraints(
-            minHeight: 86,
-          ),
-          padding: const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 12,
-          ),
+          constraints: BoxConstraints(minHeight: tileHeight),
           decoration: BoxDecoration(
-            color: backgroundColor,
             borderRadius: BorderRadius.circular(18),
+            color: isSelected
+                ? const Color.fromRGBO(95, 12, 16, 0.92)
+                : const Color.fromRGBO(22, 24, 28, 0.96),
             border: Border.all(
-              color: borderColor,
-              width: isSelected ? 1.4 : 1,
+              color: isSelected
+                  ? Colors.redAccent
+                  : const Color.fromRGBO(255, 255, 255, 0.08),
+              width: isSelected ? 2 : 1,
             ),
             boxShadow: isSelected
-                ? [
+                ? const [
                     BoxShadow(
-                      color: const Color(0xFFFF4655).withOpacity(0.22),
+                      color: Color.fromRGBO(255, 50, 60, 0.26),
                       blurRadius: 14,
-                      offset: const Offset(0, 6),
+                      offset: Offset(0, 3),
                     ),
                   ]
-                : [],
+                : const [],
           ),
           child: Row(
             children: [
-              _ChannelLogo(channel: channel),
-              const SizedBox(width: 16),
-              Expanded(
-                child: _ChannelInfo(
-                  channel: channel,
-                  isSelected: isSelected,
+              Container(
+                width: numberWidth,
+                height: tileHeight,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? const Color.fromRGBO(190, 20, 28, 0.82)
+                      : const Color.fromRGBO(10, 11, 13, 0.80),
+                  borderRadius: const BorderRadius.horizontal(
+                    left: Radius.circular(18),
+                  ),
+                  border: const Border(
+                    right: BorderSide(
+                      color: Color.fromRGBO(255, 255, 255, 0.07),
+                    ),
+                  ),
+                ),
+                child: Text(
+                  channelNumber,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: compact ? 25 : 34,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.3,
+                  ),
                 ),
               ),
-              const SizedBox(width: 10),
-              _PlayIcon(isSelected: isSelected),
+              SizedBox(width: compact ? 12 : 18),
+              _Logo(
+                channel: channel,
+                size: logoSize,
+                compact: compact,
+              ),
+              SizedBox(width: compact ? 14 : 22),
+              Expanded(
+                child: Text(
+                  channel.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: nameFontSize,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.1,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              _PlayIndicator(
+                isSelected: isSelected,
+                size: playSize,
+              ),
+              SizedBox(width: compact ? 10 : 18),
             ],
           ),
         ),
@@ -130,192 +169,99 @@ class _ChannelCard extends StatelessWidget {
   }
 }
 
-class _ChannelLogo extends StatelessWidget {
+class _Logo extends StatelessWidget {
   final Channel channel;
+  final double size;
+  final bool compact;
 
-  const _ChannelLogo({
+  const _Logo({
     required this.channel,
+    required this.size,
+    required this.compact,
   });
 
   @override
   Widget build(BuildContext context) {
     final logoUrl = channel.logoUrl.trim();
-    final hasLogo = logoUrl.isNotEmpty;
 
     return Container(
-      width: 58,
-      height: 58,
-      padding: const EdgeInsets.all(7),
+      width: size,
+      height: size,
+      padding: EdgeInsets.all(compact ? 5 : 6),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.22),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.white.withOpacity(0.10),
-          width: 1,
-        ),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(compact ? 11 : 14),
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: hasLogo
-            ? Image.network(
-                logoUrl,
-                fit: BoxFit.contain,
-                filterQuality: FilterQuality.medium,
-                errorBuilder: (context, error, stackTrace) {
-                  return _ShortNameLogo(channel: channel);
-                },
-                loadingBuilder: (context, child, loadingProgress) {
-                  if (loadingProgress == null) {
-                    return child;
-                  }
-
-                  return _ShortNameLogo(channel: channel);
-                },
-              )
-            : _ShortNameLogo(channel: channel),
-      ),
-    );
-  }
-}
-
-class _ShortNameLogo extends StatelessWidget {
-  final Channel channel;
-
-  const _ShortNameLogo({
-    required this.channel,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text(
-        channel.shortName,
-        textAlign: TextAlign.center,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 13,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.4,
-        ),
-      ),
-    );
-  }
-}
-
-class _ChannelInfo extends StatelessWidget {
-  final Channel channel;
-  final bool isSelected;
-
-  const _ChannelInfo({
-    required this.channel,
-    required this.isSelected,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final categoryColor = isSelected
-        ? Colors.white.withOpacity(0.88)
-        : Colors.white70;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Text(
-          channel.name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 17,
-            fontWeight: FontWeight.w900,
-            letterSpacing: 0.7,
-          ),
-        ),
-        const SizedBox(height: 7),
-        Row(
-          children: [
-            Flexible(
-              child: Text(
-                channel.category,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: categoryColor,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.4,
-                ),
+      child: logoUrl.isEmpty
+          ? _FallbackLogo(channel: channel, compact: compact)
+          : Image.network(
+              logoUrl,
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => _FallbackLogo(
+                channel: channel,
+                compact: compact,
               ),
             ),
-            const SizedBox(width: 8),
-            _PlayerBadge(
-              label: channel.playerLabel,
-              isSelected: isSelected,
-            ),
-          ],
-        ),
-      ],
     );
   }
 }
 
-class _PlayerBadge extends StatelessWidget {
-  final String label;
-  final bool isSelected;
+class _FallbackLogo extends StatelessWidget {
+  final Channel channel;
+  final bool compact;
 
-  const _PlayerBadge({
-    required this.label,
-    required this.isSelected,
+  const _FallbackLogo({
+    required this.channel,
+    required this.compact,
   });
 
   @override
   Widget build(BuildContext context) {
-    final badgeColor = isSelected
-        ? Colors.black.withOpacity(0.22)
-        : Colors.black.withOpacity(0.34);
+    final text = channel.shortName.trim().isNotEmpty
+        ? channel.shortName.trim()
+        : channel.name.trim();
 
-    final textColor = isSelected ? Colors.white : Colors.white70;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 8,
-        vertical: 3,
-      ),
-      decoration: BoxDecoration(
-        color: badgeColor,
-        borderRadius: BorderRadius.circular(999),
-      ),
+    return Center(
       child: Text(
-        label,
+        text.length > 4
+            ? text.substring(0, 4).toUpperCase()
+            : text.toUpperCase(),
+        textAlign: TextAlign.center,
         style: TextStyle(
-          color: textColor,
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.3,
+          color: Colors.black87,
+          fontSize: compact ? 10 : 14,
+          fontWeight: FontWeight.w900,
         ),
       ),
     );
   }
 }
 
-class _PlayIcon extends StatelessWidget {
+class _PlayIndicator extends StatelessWidget {
   final bool isSelected;
+  final double size;
 
-  const _PlayIcon({
+  const _PlayIndicator({
     required this.isSelected,
+    required this.size,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Icon(
-      Icons.play_circle_fill_rounded,
-      color: isSelected
-          ? Colors.white.withOpacity(0.82)
-          : Colors.white54,
-      size: 34,
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: isSelected
+            ? Colors.redAccent
+            : const Color.fromRGBO(255, 255, 255, 0.16),
+      ),
+      child: Icon(
+        Icons.play_arrow_rounded,
+        color: Colors.white,
+        size: size * 0.72,
+      ),
     );
   }
 }

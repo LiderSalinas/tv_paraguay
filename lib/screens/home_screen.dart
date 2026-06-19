@@ -25,12 +25,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool _isLoading = true;
   bool _isFullScreen = false;
-  String _errorMessage = '';
+  bool _showHint = true;
 
+  String _errorMessage = '';
   String _typedChannelNumber = '';
-  bool _showChannelNumberOverlay = false;
-  bool _channelNumberNotFound = false;
-  Timer? _channelNumberTimer;
+
+  Timer? _hintTimer;
+  Timer? _numberTimer;
 
   int get _selectedIndex {
     if (_selectedChannel == null) return -1;
@@ -44,6 +45,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadChannels();
+    _showTemporaryHint();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
@@ -54,7 +56,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
-    _channelNumberTimer?.cancel();
+    _hintTimer?.cancel();
+    _numberTimer?.cancel();
     _tvFocusNode.dispose();
     _scrollController.dispose();
 
@@ -84,6 +87,7 @@ class _HomeScreenState extends State<HomeScreen> {
       });
 
       _requestTvFocus();
+      _showTemporaryHint();
     } catch (_) {
       setState(() {
         _isLoading = false;
@@ -102,18 +106,37 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  void _selectChannel(Channel channel) {
-    final index = _channels.indexWhere((item) => item.id == channel.id);
+  void _showTemporaryHint() {
+    _hintTimer?.cancel();
 
+    if (mounted) {
+      setState(() {
+        _showHint = true;
+      });
+    }
+
+    _hintTimer = Timer(const Duration(seconds: 4), () {
+      if (!mounted) return;
+
+      setState(() {
+        _showHint = false;
+      });
+    });
+  }
+
+  void _selectChannel(Channel channel) {
     setState(() {
       _selectedChannel = channel;
+      _typedChannelNumber = '';
     });
 
+    final index = _channels.indexWhere((item) => item.id == channel.id);
     if (index >= 0) {
       _scrollToSelected(index);
     }
 
     _requestTvFocus();
+    _showTemporaryHint();
   }
 
   void _selectChannelByIndex(int index) {
@@ -124,10 +147,29 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() {
       _selectedChannel = channel;
+      _typedChannelNumber = '';
     });
 
     _scrollToSelected(safeIndex);
     _requestTvFocus();
+    _showTemporaryHint();
+  }
+
+  void _selectChannelByNumber(int number) {
+    if (_channels.isEmpty) return;
+
+    final index = _channels.indexWhere((channel) => channel.id == number);
+
+    if (index >= 0) {
+      _selectChannelByIndex(index);
+      return;
+    }
+
+    setState(() {
+      _typedChannelNumber = '';
+    });
+
+    _showTemporaryHint();
   }
 
   void _nextChannel() {
@@ -155,7 +197,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _scrollToSelected(int index) {
     if (!_scrollController.hasClients) return;
 
-    const itemHeight = 98.0;
+    const itemHeight = 86.0;
     final targetOffset = (index * itemHeight) - 120;
 
     final min = _scrollController.position.minScrollExtent;
@@ -173,6 +215,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() {
       _isFullScreen = nextValue;
+      _typedChannelNumber = '';
     });
 
     if (nextValue) {
@@ -197,6 +240,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     _requestTvFocus();
+    _showTemporaryHint();
   }
 
   Future<void> _enterFullScreen() async {
@@ -209,136 +253,62 @@ class _HomeScreenState extends State<HomeScreen> {
     await _toggleFullScreen();
   }
 
-  void _handleDigitInput(String digit) {
-    if (_channels.isEmpty) return;
+  int? _digitFromKey(LogicalKeyboardKey key) {
+    final label = key.keyLabel;
 
-    _channelNumberTimer?.cancel();
-
-    String nextNumber = _typedChannelNumber + digit;
-
-    if (nextNumber.length > 3) {
-      nextNumber = digit;
+    if (label.length == 1) {
+      final digit = int.tryParse(label);
+      if (digit != null) return digit;
     }
 
-    if (nextNumber.startsWith('0') && nextNumber.length > 1) {
-      nextNumber = nextNumber.replaceFirst(RegExp(r'^0+'), '');
-      if (nextNumber.isEmpty) {
-        nextNumber = '0';
-      }
+    final keyId = key.keyId;
+
+    const digit0 = 0x0000000000000030;
+    const digit9 = 0x0000000000000039;
+    const numpad0 = 0x0000000000200030;
+    const numpad9 = 0x0000000000200039;
+
+    if (keyId >= digit0 && keyId <= digit9) {
+      return keyId - digit0;
     }
 
-    setState(() {
-      _typedChannelNumber = nextNumber;
-      _showChannelNumberOverlay = true;
-      _channelNumberNotFound = false;
-    });
-
-    _channelNumberTimer = Timer(
-      const Duration(milliseconds: 950),
-      _confirmTypedChannelNumber,
-    );
-  }
-
-  void _confirmTypedChannelNumber() {
-    if (_typedChannelNumber.trim().isEmpty) {
-      _hideChannelNumberOverlay();
-      return;
-    }
-
-    final number = int.tryParse(_typedChannelNumber);
-
-    if (number == null) {
-      _hideChannelNumberOverlay();
-      return;
-    }
-
-    final index = _channels.indexWhere((channel) => channel.id == number);
-
-    if (index >= 0) {
-      _selectChannelByIndex(index);
-
-      _channelNumberTimer?.cancel();
-      _channelNumberTimer = Timer(
-        const Duration(milliseconds: 450),
-        _hideChannelNumberOverlay,
-      );
-    } else {
-      setState(() {
-        _channelNumberNotFound = true;
-      });
-
-      _channelNumberTimer?.cancel();
-      _channelNumberTimer = Timer(
-        const Duration(milliseconds: 900),
-        _hideChannelNumberOverlay,
-      );
-    }
-  }
-
-  void _hideChannelNumberOverlay() {
-    if (!mounted) return;
-
-    setState(() {
-      _typedChannelNumber = '';
-      _showChannelNumberOverlay = false;
-      _channelNumberNotFound = false;
-    });
-
-    _requestTvFocus();
-  }
-
-  String? _digitFromKey(LogicalKeyboardKey key) {
-    if (key == LogicalKeyboardKey.digit0 ||
-        key == LogicalKeyboardKey.numpad0) {
-      return '0';
-    }
-
-    if (key == LogicalKeyboardKey.digit1 ||
-        key == LogicalKeyboardKey.numpad1) {
-      return '1';
-    }
-
-    if (key == LogicalKeyboardKey.digit2 ||
-        key == LogicalKeyboardKey.numpad2) {
-      return '2';
-    }
-
-    if (key == LogicalKeyboardKey.digit3 ||
-        key == LogicalKeyboardKey.numpad3) {
-      return '3';
-    }
-
-    if (key == LogicalKeyboardKey.digit4 ||
-        key == LogicalKeyboardKey.numpad4) {
-      return '4';
-    }
-
-    if (key == LogicalKeyboardKey.digit5 ||
-        key == LogicalKeyboardKey.numpad5) {
-      return '5';
-    }
-
-    if (key == LogicalKeyboardKey.digit6 ||
-        key == LogicalKeyboardKey.numpad6) {
-      return '6';
-    }
-
-    if (key == LogicalKeyboardKey.digit7 ||
-        key == LogicalKeyboardKey.numpad7) {
-      return '7';
-    }
-
-    if (key == LogicalKeyboardKey.digit8 ||
-        key == LogicalKeyboardKey.numpad8) {
-      return '8';
-    }
-
-    if (key == LogicalKeyboardKey.digit9 ||
-        key == LogicalKeyboardKey.numpad9) {
-      return '9';
+    if (keyId >= numpad0 && keyId <= numpad9) {
+      return keyId - numpad0;
     }
 
     return null;
+  }
+
+  void _handleDigit(int digit) {
+    _numberTimer?.cancel();
+
+    final nextValue = (_typedChannelNumber + digit.toString()).trim();
+
+    setState(() {
+      _typedChannelNumber = nextValue.length > 2
+          ? digit.toString()
+          : nextValue;
+    });
+
+    _showTemporaryHint();
+
+    _numberTimer = Timer(const Duration(milliseconds: 900), () {
+      final number = int.tryParse(_typedChannelNumber);
+      if (number == null) return;
+
+      _selectChannelByNumber(number);
+    });
+  }
+
+  void _confirmTypedNumber() {
+    if (_typedChannelNumber.isEmpty) return;
+
+    _numberTimer?.cancel();
+
+    final number = int.tryParse(_typedChannelNumber);
+    if (number == null) return;
+
+    _selectChannelByNumber(number);
   }
 
   KeyEventResult _handleTvRemoteKey(FocusNode node, KeyEvent event) {
@@ -350,7 +320,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final digit = _digitFromKey(key);
 
     if (digit != null) {
-      _handleDigitInput(digit);
+      _handleDigit(digit);
       return KeyEventResult.handled;
     }
 
@@ -373,8 +343,7 @@ class _HomeScreenState extends State<HomeScreen> {
         key == LogicalKeyboardKey.numpadEnter ||
         key == LogicalKeyboardKey.space) {
       if (_typedChannelNumber.isNotEmpty) {
-        _channelNumberTimer?.cancel();
-        _confirmTypedChannelNumber();
+        _confirmTypedNumber();
       } else {
         _toggleFullScreen();
       }
@@ -388,7 +357,12 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     if (key == LogicalKeyboardKey.arrowLeft) {
-      _exitFullScreen();
+      if (_isFullScreen) {
+        _exitFullScreen();
+        return KeyEventResult.handled;
+      }
+
+      _showTemporaryHint();
       return KeyEventResult.handled;
     }
 
@@ -396,7 +370,9 @@ class _HomeScreenState extends State<HomeScreen> {
         key == LogicalKeyboardKey.goBack ||
         key == LogicalKeyboardKey.browserBack) {
       if (_typedChannelNumber.isNotEmpty) {
-        _hideChannelNumberOverlay();
+        setState(() {
+          _typedChannelNumber = '';
+        });
         return KeyEventResult.handled;
       }
 
@@ -419,31 +395,14 @@ class _HomeScreenState extends State<HomeScreen> {
       onKeyEvent: _handleTvRemoteKey,
       child: GestureDetector(
         behavior: HitTestBehavior.translucent,
-        onTap: _requestTvFocus,
+        onTap: () {
+          _requestTvFocus();
+          _showTemporaryHint();
+        },
         child: Scaffold(
           backgroundColor: Colors.black,
-          appBar: _isFullScreen
-              ? null
-              : AppBar(
-                  title: const Text('TV Paraguay'),
-                  backgroundColor: Colors.black,
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  actions: [
-                    IconButton(
-                      tooltip: 'Actualizar canales',
-                      onPressed: _loadChannels,
-                      icon: const Icon(Icons.refresh),
-                    ),
-                  ],
-                ),
-          body: Stack(
-            children: [
-              Positioned.fill(
-                child: _buildBody(),
-              ),
-              _buildChannelNumberOverlay(),
-            ],
+          body: SafeArea(
+            child: _buildBody(),
           ),
         ),
       ),
@@ -453,7 +412,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildBody() {
     if (_isLoading) {
       return const Center(
-        child: CircularProgressIndicator(),
+        child: CircularProgressIndicator(
+          color: Colors.redAccent,
+        ),
       );
     }
 
@@ -471,126 +432,156 @@ class _HomeScreenState extends State<HomeScreen> {
               onToggleFullScreen: _toggleFullScreen,
             ),
           ),
-          _buildTvBoxHint(),
+          if (_showHint) _buildTvBoxHint(),
+          if (_typedChannelNumber.isNotEmpty) _buildTypedNumberOverlay(),
         ],
       );
     }
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= 800;
+        final isWide = constraints.maxWidth >= 760;
 
-        if (isWide) {
-          return Row(
-            children: [
-              SizedBox(
-                width: 330,
-                child: ChannelList(
-                  channels: _channels,
-                  selectedChannel: _selectedChannel,
-                  scrollController: _scrollController,
-                  onChannelSelected: _selectChannel,
-                ),
-              ),
-              Expanded(
-                child: VideoPanel(
-                  channel: _selectedChannel,
-                  isFullScreen: false,
-                  onToggleFullScreen: _toggleFullScreen,
-                ),
-              ),
-            ],
-          );
-        }
-
-        return Column(
+        return Stack(
           children: [
-            Expanded(
-              flex: 5,
-              child: VideoPanel(
-                channel: _selectedChannel,
-                isFullScreen: false,
-                onToggleFullScreen: _toggleFullScreen,
-              ),
+            Column(
+              children: [
+                _buildHeader(),
+                Expanded(
+                  child: isWide
+                      ? _buildWideLayout(constraints)
+                      : _buildMobileLayout(),
+                ),
+              ],
             ),
-            Expanded(
-              flex: 4,
-              child: ChannelList(
-                channels: _channels,
-                selectedChannel: _selectedChannel,
-                scrollController: _scrollController,
-                onChannelSelected: _selectChannel,
-              ),
-            ),
+            if (_showHint) _buildTvBoxHint(),
+            if (_typedChannelNumber.isNotEmpty) _buildTypedNumberOverlay(),
           ],
         );
       },
     );
   }
 
-  Widget _buildChannelNumberOverlay() {
-    if (!_showChannelNumberOverlay || _typedChannelNumber.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    final title = _channelNumberNotFound
-        ? 'Canal no disponible'
-        : 'Canal $_typedChannelNumber';
-
-    return Positioned(
-      top: _isFullScreen ? 24 : 86,
-      right: 22,
-      child: IgnorePointer(
-        child: AnimatedOpacity(
-          opacity: _showChannelNumberOverlay ? 1 : 0,
-          duration: const Duration(milliseconds: 160),
-          child: Container(
-            width: 150,
-            padding: const EdgeInsets.symmetric(
-              horizontal: 14,
-              vertical: 14,
-            ),
-            decoration: BoxDecoration(
-              color: _channelNumberNotFound
-                  ? Colors.redAccent.withValues(alpha: 0.92)
-                  : Colors.black.withValues(alpha: 0.84),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.16),
-                width: 1,
+  Widget _buildHeader() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
+      child: Row(
+        children: [
+          const Expanded(
+            child: Text(
+              'TV Paraguay',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 28,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.2,
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.35),
-                  blurRadius: 18,
-                  offset: const Offset(0, 8),
-                ),
-              ],
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  _typedChannelNumber,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 42,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  title,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
+          ),
+          IconButton(
+            tooltip: 'Actualizar canales',
+            onPressed: _loadChannels,
+            icon: const Icon(
+              Icons.refresh,
+              color: Colors.white,
+              size: 31,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWideLayout(BoxConstraints constraints) {
+    final sidebarWidth = constraints.maxWidth >= 1200 ? 320.0 : 300.0;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 72),
+      child: Row(
+        children: [
+          SizedBox(
+            width: sidebarWidth,
+            child: ChannelList(
+              channels: _channels,
+              selectedChannel: _selectedChannel,
+              scrollController: _scrollController,
+              onChannelSelected: _selectChannel,
+              compact: true,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(22),
+              child: VideoPanel(
+                channel: _selectedChannel,
+                isFullScreen: false,
+                onToggleFullScreen: _toggleFullScreen,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMobileLayout() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 82),
+      child: Column(
+        children: [
+          AspectRatio(
+            aspectRatio: 16 / 9,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(24),
+              child: VideoPanel(
+                channel: _selectedChannel,
+                isFullScreen: false,
+                onToggleFullScreen: _toggleFullScreen,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: ChannelList(
+              channels: _channels,
+              selectedChannel: _selectedChannel,
+              scrollController: _scrollController,
+              onChannelSelected: _selectChannel,
+              compact: false,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTvBoxHint() {
+    return Positioned(
+      left: 24,
+      right: 24,
+      bottom: 18,
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 18,
+            vertical: 12,
+          ),
+          decoration: BoxDecoration(
+            color: const Color.fromRGBO(20, 20, 20, 0.88),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(
+              color: const Color.fromRGBO(255, 255, 255, 0.10),
+            ),
+          ),
+          child: const Text(
+            '↑↓ cambiar canal  ·  OK pantalla completa  ·  0-9 canal',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white70,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ),
@@ -598,25 +589,29 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildTvBoxHint() {
+  Widget _buildTypedNumberOverlay() {
     return Positioned(
-      left: 16,
-      bottom: 16,
+      left: 24,
+      top: 96,
       child: Container(
         padding: const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 10,
+          horizontal: 22,
+          vertical: 16,
         ),
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.55),
-          borderRadius: BorderRadius.circular(12),
+          color: const Color.fromRGBO(0, 0, 0, 0.82),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: Colors.redAccent,
+            width: 1.5,
+          ),
         ),
-        child: const Text(
-          '↑ ↓ cambiar canal  ·  números: canal directo  ·  OK pantalla completa  ·  ← volver',
-          style: TextStyle(
-            color: Colors.white70,
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
+        child: Text(
+          _typedChannelNumber.padLeft(2, '0'),
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 42,
+            fontWeight: FontWeight.w900,
           ),
         ),
       ),
@@ -633,7 +628,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const Icon(
               Icons.wifi_off,
               color: Colors.redAccent,
-              size: 56,
+              size: 64,
             ),
             const SizedBox(height: 16),
             Text(
@@ -641,7 +636,8 @@ class _HomeScreenState extends State<HomeScreen> {
               textAlign: TextAlign.center,
               style: const TextStyle(
                 color: Colors.white,
-                fontSize: 18,
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
               ),
             ),
             const SizedBox(height: 20),

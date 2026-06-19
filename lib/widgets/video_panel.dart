@@ -27,10 +27,14 @@ class VideoPanel extends StatefulWidget {
 class _VideoPanelState extends State<VideoPanel> {
   VideoPlayerController? _videoController;
   WebViewController? _webViewController;
+
   Timer? _autoPlayTimer;
+  Timer? _overlayTimer;
 
   bool _isLoading = false;
   bool _hasError = false;
+  bool _showOverlay = true;
+
   String _errorMessage = '';
   int _webProgress = 0;
 
@@ -47,12 +51,17 @@ class _VideoPanelState extends State<VideoPanel> {
     if (oldWidget.channel?.id != widget.channel?.id) {
       _setupPlayer();
     }
+
+    if (oldWidget.isFullScreen != widget.isFullScreen) {
+      _showTemporaryOverlay();
+    }
   }
 
   Future<void> _setupPlayer() async {
     final channel = widget.channel;
 
     _stopAutoplayAttempts();
+    _stopOverlayTimer();
     await _disposeVideoController();
 
     _webViewController = null;
@@ -63,6 +72,7 @@ class _VideoPanelState extends State<VideoPanel> {
     setState(() {
       _isLoading = true;
       _hasError = false;
+      _showOverlay = true;
       _errorMessage = '';
     });
 
@@ -105,13 +115,16 @@ class _VideoPanelState extends State<VideoPanel> {
         _hasError = false;
         _errorMessage = '';
       });
+
+      _showTemporaryOverlay();
     } catch (_) {
       if (!mounted) return;
 
       setState(() {
         _isLoading = false;
         _hasError = true;
-        _errorMessage = 'No se pudo reproducir este canal.';
+        _showOverlay = true;
+        _errorMessage = 'Canal no disponible. Probá actualizar o elegir otro canal.';
       });
     }
   }
@@ -123,8 +136,8 @@ class _VideoPanelState extends State<VideoPanel> {
       setState(() {
         _isLoading = false;
         _hasError = true;
-        _errorMessage =
-            'Este canal usa WebView. Probalo en la APK Android del TV Box, no en Chrome.';
+        _showOverlay = true;
+        _errorMessage = 'Este canal funciona en la APK Android del TV Box.';
       });
 
       return;
@@ -162,6 +175,7 @@ class _VideoPanelState extends State<VideoPanel> {
             setState(() {
               _isLoading = true;
               _hasError = false;
+              _showOverlay = true;
               _errorMessage = '';
             });
           },
@@ -176,6 +190,8 @@ class _VideoPanelState extends State<VideoPanel> {
               _hasError = false;
               _errorMessage = '';
             });
+
+            _showTemporaryOverlay();
           },
           onWebResourceError: (error) {
             if (!mounted) return;
@@ -184,7 +200,8 @@ class _VideoPanelState extends State<VideoPanel> {
               setState(() {
                 _isLoading = false;
                 _hasError = true;
-                _errorMessage = 'No se pudo abrir el reproductor web.';
+                _showOverlay = true;
+                _errorMessage = 'No se pudo abrir este canal.';
               });
             }
           },
@@ -198,6 +215,7 @@ class _VideoPanelState extends State<VideoPanel> {
       setState(() {
         _isLoading = true;
         _hasError = false;
+        _showOverlay = true;
         _errorMessage = '';
       });
 
@@ -211,7 +229,8 @@ class _VideoPanelState extends State<VideoPanel> {
       setState(() {
         _isLoading = false;
         _hasError = true;
-        _errorMessage = 'No se pudo preparar el reproductor web.';
+        _showOverlay = true;
+        _errorMessage = 'No se pudo preparar este canal.';
       });
     }
   }
@@ -240,6 +259,29 @@ class _VideoPanelState extends State<VideoPanel> {
     _autoPlayTimer = null;
   }
 
+  void _stopOverlayTimer() {
+    _overlayTimer?.cancel();
+    _overlayTimer = null;
+  }
+
+  void _showTemporaryOverlay() {
+    _stopOverlayTimer();
+
+    if (!mounted) return;
+
+    setState(() {
+      _showOverlay = true;
+    });
+
+    _overlayTimer = Timer(const Duration(seconds: 4), () {
+      if (!mounted) return;
+
+      setState(() {
+        _showOverlay = false;
+      });
+    });
+  }
+
   Future<void> _tryImproveWebPlayer() async {
     final controller = _webViewController;
 
@@ -250,6 +292,11 @@ class _VideoPanelState extends State<VideoPanel> {
         (function() {
           document.body.style.backgroundColor = 'black';
           document.documentElement.style.backgroundColor = 'black';
+          document.body.style.margin = '0';
+          document.body.style.padding = '0';
+          document.documentElement.style.margin = '0';
+          document.documentElement.style.padding = '0';
+          document.body.style.overflow = 'hidden';
 
           const videos = document.querySelectorAll('video');
 
@@ -261,6 +308,7 @@ class _VideoPanelState extends State<VideoPanel> {
             video.autoplay = true;
             video.muted = false;
             video.volume = 1.0;
+            video.style.backgroundColor = 'black';
 
             const promise = video.play();
 
@@ -359,6 +407,7 @@ class _VideoPanelState extends State<VideoPanel> {
   @override
   void dispose() {
     _stopAutoplayAttempts();
+    _stopOverlayTimer();
     _disposeVideoController();
     super.dispose();
   }
@@ -367,20 +416,24 @@ class _VideoPanelState extends State<VideoPanel> {
   Widget build(BuildContext context) {
     final channel = widget.channel;
 
-    return Container(
-      color: Colors.black,
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: _buildContent(channel),
-          ),
-          if (_isLoading) _buildLoadingOverlay(channel),
-          if (_hasError) _buildErrorOverlay(channel),
-          if (!_isLoading && !_hasError && channel != null)
-            _buildChannelHeader(channel),
-          if (!_isLoading && !_hasError && channel != null)
-            _buildFullScreenButton(),
-        ],
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onTap: _showTemporaryOverlay,
+      child: Container(
+        color: Colors.black,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: _buildContent(channel),
+            ),
+            if (_isLoading) _buildLoadingOverlay(channel),
+            if (_hasError) _buildErrorOverlay(channel),
+            if (!_isLoading && !_hasError && channel != null && _showOverlay)
+              _buildCleanChannelBadge(channel),
+            if (!_isLoading && !_hasError && channel != null && _showOverlay)
+              _buildFullScreenButton(),
+          ],
+        ),
       ),
     );
   }
@@ -392,7 +445,8 @@ class _VideoPanelState extends State<VideoPanel> {
           'Seleccioná un canal',
           style: TextStyle(
             color: Colors.white70,
-            fontSize: 20,
+            fontSize: 22,
+            fontWeight: FontWeight.w600,
           ),
         ),
       );
@@ -414,100 +468,45 @@ class _VideoPanelState extends State<VideoPanel> {
       return const SizedBox.shrink();
     }
 
-    if (widget.isFullScreen) {
-      return Center(
-        child: FittedBox(
-          fit: BoxFit.contain,
-          child: SizedBox(
-            width: controller.value.size.width,
-            height: controller.value.size.height,
-            child: VideoPlayer(controller),
-          ),
-        ),
-      );
-    }
-
     return Center(
-      child: AspectRatio(
-        aspectRatio: controller.value.aspectRatio,
-        child: Stack(
-          alignment: Alignment.bottomCenter,
-          children: [
-            VideoPlayer(controller),
-            _buildVideoControls(controller),
-          ],
+      child: FittedBox(
+        fit: widget.isFullScreen ? BoxFit.contain : BoxFit.contain,
+        child: SizedBox(
+          width: controller.value.size.width,
+          height: controller.value.size.height,
+          child: VideoPlayer(controller),
         ),
-      ),
-    );
-  }
-
-  Widget _buildVideoControls(VideoPlayerController controller) {
-    return Container(
-      color: Colors.black.withValues(alpha: 0.35),
-      child: Row(
-        children: [
-          IconButton(
-            color: Colors.white,
-            icon: Icon(
-              controller.value.isPlaying ? Icons.pause : Icons.play_arrow,
-            ),
-            onPressed: () {
-              setState(() {
-                if (controller.value.isPlaying) {
-                  controller.pause();
-                } else {
-                  controller.play();
-                }
-              });
-            },
-          ),
-          Expanded(
-            child: VideoProgressIndicator(
-              controller,
-              allowScrubbing: true,
-              colors: const VideoProgressColors(
-                playedColor: Colors.redAccent,
-                bufferedColor: Colors.white54,
-                backgroundColor: Colors.white24,
-              ),
-            ),
-          ),
-          IconButton(
-            color: Colors.white,
-            icon: const Icon(Icons.replay),
-            onPressed: () async {
-              await controller.seekTo(Duration.zero);
-              await controller.play();
-            },
-          ),
-        ],
       ),
     );
   }
 
   Widget _buildLoadingOverlay(Channel? channel) {
     return Container(
-      color: Colors.black.withValues(alpha: 0.70),
+      color: const Color.fromRGBO(0, 0, 0, 0.78),
       child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const CircularProgressIndicator(),
-            const SizedBox(height: 16),
+            const CircularProgressIndicator(
+              color: Colors.redAccent,
+              strokeWidth: 3,
+            ),
+            const SizedBox(height: 18),
             Text(
-              channel == null ? 'Cargando...' : 'Cargando ${channel.name}...',
+              channel == null ? 'Cargando...' : 'Cargando canal...',
               style: const TextStyle(
                 color: Colors.white,
-                fontSize: 18,
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
               ),
             ),
             if (channel?.isWebView == true) ...[
               const SizedBox(height: 8),
               Text(
-                'WebView $_webProgress%',
+                'Preparando $_webProgress%',
                 style: const TextStyle(
                   color: Colors.white70,
-                  fontSize: 14,
+                  fontSize: 15,
                 ),
               ),
             ],
@@ -519,97 +518,121 @@ class _VideoPanelState extends State<VideoPanel> {
 
   Widget _buildErrorOverlay(Channel? channel) {
     return Container(
-      color: Colors.black.withValues(alpha: 0.85),
+      color: const Color.fromRGBO(0, 0, 0, 0.88),
       padding: const EdgeInsets.all(24),
       child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.error_outline,
-              color: Colors.redAccent,
-              size: 54,
+        child: Container(
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            color: const Color.fromRGBO(22, 24, 28, 0.96),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(
+              color: const Color.fromRGBO(255, 255, 255, 0.10),
             ),
-            const SizedBox(height: 16),
-            Text(
-              channel?.name ?? 'Canal',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.tv_off_rounded,
+                color: Colors.redAccent,
+                size: 58,
               ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              _errorMessage,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 16,
+              const SizedBox(height: 16),
+              Text(
+                channel?.name ?? 'Canal',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 23,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton.icon(
-              onPressed: _setupPlayer,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Reintentar'),
-            ),
-          ],
+              const SizedBox(height: 10),
+              Text(
+                _errorMessage,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton.icon(
+                onPressed: _setupPlayer,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Reintentar'),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildChannelHeader(Channel channel) {
+  Widget _buildCleanChannelBadge(Channel channel) {
+    final channelNumber = channel.id.toString().padLeft(2, '0');
+
     return Positioned(
       left: 16,
       top: 16,
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 8,
-        ),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.55),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.live_tv,
-              color: Colors.white,
-              size: 20,
+      child: AnimatedOpacity(
+        opacity: _showOverlay ? 1 : 0,
+        duration: const Duration(milliseconds: 220),
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 10,
+          ),
+          decoration: BoxDecoration(
+            color: const Color.fromRGBO(0, 0, 0, 0.76),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: const Color.fromRGBO(255, 255, 255, 0.10),
             ),
-            const SizedBox(width: 8),
-            Text(
-              channel.name,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 3,
-              ),
-              decoration: BoxDecoration(
-                color: channel.isWebView ? Colors.blueGrey : Colors.redAccent,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                channel.isWebView ? 'WEB' : 'HLS',
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                channelNumber,
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w900,
                 ),
               ),
-            ),
-          ],
+              const SizedBox(width: 12),
+              Text(
+                channel.name,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 19,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 9,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.redAccent,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: const Text(
+                  'EN VIVO',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -620,17 +643,20 @@ class _VideoPanelState extends State<VideoPanel> {
       right: 16,
       top: 16,
       child: Material(
-        color: Colors.black.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(14),
+        color: const Color.fromRGBO(0, 0, 0, 0.66),
+        borderRadius: BorderRadius.circular(16),
         child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: widget.onToggleFullScreen,
+          borderRadius: BorderRadius.circular(16),
+          onTap: () {
+            _showTemporaryOverlay();
+            widget.onToggleFullScreen?.call();
+          },
           child: Padding(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(11),
             child: Icon(
               widget.isFullScreen ? Icons.fullscreen_exit : Icons.fullscreen,
               color: Colors.white,
-              size: 28,
+              size: 30,
             ),
           ),
         ),
