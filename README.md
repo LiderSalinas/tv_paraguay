@@ -1,16 +1,29 @@
-# tv_paraguay
+# TV Paraguay - App Flutter
 
-A new Flutter project.
+Aplicación móvil desarrollada con Flutter para reproducción de canales de televisión en vivo de Paraguay.
 
-## Getting Started
+## Características
 
-This project is a starting point for a Flutter application.
+- Reproducción de streams HLS.
+- Listado de canales desde archivo JSON.
+- Interfaz simple y adaptable.
+- Pruebas en Android y TV Box.
+- Integración con reproductor multimedia.
+- Organización de canales por nombre, categoría y URL de transmisión.
 
-A few resources to get you started if this is your first Flutter project:
+## Tecnologías utilizadas
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+- Flutter
+- Dart
+- JSON
+- HLS / M3U8
+- Android
+- Git / GitHub
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Objetivo del proyecto
+
+El objetivo de este proyecto es practicar desarrollo móvil con Flutter, manejo de datos externos y reproducción de contenido multimedia en una aplicación funcional.
+
+## Estado
+
+Proyecto en desarrollo y pruebas.
