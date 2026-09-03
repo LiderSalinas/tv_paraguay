@@ -15,7 +15,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final ChannelService _channelService = ChannelService();
   final FocusNode _tvFocusNode = FocusNode(debugLabel: 'tv_box_focus');
   final ScrollController _scrollController = ScrollController();
@@ -24,6 +24,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Channel? _selectedChannel;
 
   bool _isLoading = true;
+  bool _isRefreshing = false;
+  bool _isChannelRequestInFlight = false;
+  bool _hasLoadedChannels = false;
+  bool _isUsingRemoteChannels = false;
   bool _isFullScreen = false;
   bool _showHint = true;
 
@@ -44,7 +48,8 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _loadChannels();
+    WidgetsBinding.instance.addObserver(this);
+    _loadChannels(showFeedback: false);
     _showTemporaryHint();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -56,6 +61,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _hintTimer?.cancel();
     _numberTimer?.cancel();
     _tvFocusNode.dispose();
@@ -71,31 +77,89 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  Future<void> _loadChannels() async {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !_isChannelRequestInFlight) {
+      _loadChannels(showFeedback: false);
+    }
+  }
+
+  Future<void> _loadChannels({bool showFeedback = true}) async {
+    if (_isChannelRequestInFlight) return;
+    _isChannelRequestInFlight = true;
+
+    final previousChannelId = _selectedChannel?.id;
+
     setState(() {
-      _isLoading = true;
+      _isLoading = !_hasLoadedChannels;
+      _isRefreshing = _hasLoadedChannels;
       _errorMessage = '';
     });
 
     try {
-      final channels = await _channelService.getChannels();
+      final result = await _channelService.getChannels();
+
+      if (!mounted) return;
+
+      final channels = result.channels;
+      final previousIndex = previousChannelId == null
+          ? -1
+          : channels.indexWhere((channel) => channel.id == previousChannelId);
 
       setState(() {
         _channels = channels;
-        _selectedChannel = channels.isNotEmpty ? channels.first : null;
+        _selectedChannel = channels.isEmpty
+            ? null
+            : previousIndex >= 0
+                ? channels[previousIndex]
+                : channels.first;
         _isLoading = false;
+        _isRefreshing = false;
+        _hasLoadedChannels = true;
+        _isUsingRemoteChannels = result.isRemote;
       });
+
+      if (showFeedback) {
+        _showChannelLoadFeedback(result);
+      }
 
       _requestTvFocus();
       _showTemporaryHint();
     } catch (_) {
+      if (!mounted) return;
+
       setState(() {
         _isLoading = false;
+        _isRefreshing = false;
         _errorMessage = 'No se pudo cargar la lista de canales.';
       });
 
       _requestTvFocus();
+    } finally {
+      _isChannelRequestInFlight = false;
     }
+  }
+
+  void _showChannelLoadFeedback(ChannelLoadResult result) {
+    final isRemote = result.isRemote;
+    final message = isRemote
+        ? 'Grilla actualizada desde Internet: ${result.channels.length} canales.'
+        : 'No se pudo conectar a la grilla remota. Se usa el respaldo integrado.';
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            message,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          backgroundColor: isRemote
+              ? const Color.fromRGBO(24, 116, 67, 1)
+              : const Color.fromRGBO(173, 91, 12, 1),
+          duration: const Duration(seconds: 4),
+        ),
+      );
   }
 
   void _requestTvFocus() {
@@ -479,16 +543,73 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ),
-          IconButton(
-            tooltip: 'Actualizar canales',
-            onPressed: _loadChannels,
-            icon: const Icon(
-              Icons.refresh,
-              color: Colors.white,
-              size: 31,
+          _buildChannelSourceBadge(),
+          const SizedBox(width: 6),
+          if (_isRefreshing)
+            const SizedBox(
+              width: 48,
+              height: 48,
+              child: Padding(
+                padding: EdgeInsets.all(12),
+                child: CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 3,
+                ),
+              ),
+            )
+          else
+            IconButton(
+              tooltip: 'Actualizar canales',
+              onPressed: () => _loadChannels(),
+              icon: const Icon(
+                Icons.refresh,
+                color: Colors.white,
+                size: 31,
+              ),
             ),
-          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildChannelSourceBadge() {
+    final isRemote = _isUsingRemoteChannels;
+
+    return Tooltip(
+      message: isRemote
+          ? 'Lista cargada desde Internet'
+          : 'Se está usando la lista integrada',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        decoration: BoxDecoration(
+          color: isRemote
+              ? const Color.fromRGBO(24, 116, 67, 0.88)
+              : const Color.fromRGBO(173, 91, 12, 0.88),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: const Color.fromRGBO(255, 255, 255, 0.14),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isRemote ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
+              color: Colors.white,
+              size: 17,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              isRemote ? 'EN LÍNEA' : 'RESPALDO',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.3,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

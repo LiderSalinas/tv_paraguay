@@ -3,8 +3,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
-import 'package:webview_flutter/webview_flutter.dart';
-import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import '../models/channel.dart';
 
@@ -26,9 +24,7 @@ class VideoPanel extends StatefulWidget {
 
 class _VideoPanelState extends State<VideoPanel> {
   VideoPlayerController? _videoController;
-  WebViewController? _webViewController;
 
-  Timer? _autoPlayTimer;
   Timer? _overlayTimer;
 
   bool _isLoading = false;
@@ -36,7 +32,6 @@ class _VideoPanelState extends State<VideoPanel> {
   bool _showOverlay = true;
 
   String _errorMessage = '';
-  int _webProgress = 0;
 
   @override
   void initState() {
@@ -48,7 +43,15 @@ class _VideoPanelState extends State<VideoPanel> {
   void didUpdateWidget(covariant VideoPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    if (oldWidget.channel?.id != widget.channel?.id) {
+    final oldChannel = oldWidget.channel;
+    final newChannel = widget.channel;
+    final channelChanged =
+        oldChannel?.id != newChannel?.id ||
+        oldChannel?.streamUrl != newChannel?.streamUrl ||
+        oldChannel?.playerType != newChannel?.playerType ||
+        !mapEquals(oldChannel?.httpHeaders, newChannel?.httpHeaders);
+
+    if (channelChanged) {
       _setupPlayer();
     }
 
@@ -60,12 +63,8 @@ class _VideoPanelState extends State<VideoPanel> {
   Future<void> _setupPlayer() async {
     final channel = widget.channel;
 
-    _stopAutoplayAttempts();
     _stopOverlayTimer();
     await _disposeVideoController();
-
-    _webViewController = null;
-    _webProgress = 0;
 
     if (!mounted) return;
 
@@ -83,8 +82,12 @@ class _VideoPanelState extends State<VideoPanel> {
       return;
     }
 
-    if (channel.isWebView) {
-      await _setupWebView(channel);
+    if (!channel.isHls) {
+      setState(() {
+        _isLoading = false;
+        _hasError = true;
+        _errorMessage = 'Esta versión admite únicamente señales HLS directas.';
+      });
       return;
     }
 
@@ -129,136 +132,6 @@ class _VideoPanelState extends State<VideoPanel> {
     }
   }
 
-  Future<void> _setupWebView(Channel channel) async {
-    if (kIsWeb) {
-      if (!mounted) return;
-
-      setState(() {
-        _isLoading = false;
-        _hasError = true;
-        _showOverlay = true;
-        _errorMessage = 'Este canal funciona en la APK Android del TV Box.';
-      });
-
-      return;
-    }
-
-    try {
-      if (channel.webUrl.trim().isEmpty) {
-        throw Exception('Este canal no tiene webUrl');
-      }
-
-      final controller = WebViewController();
-
-      if (controller.platform is AndroidWebViewController) {
-        AndroidWebViewController.enableDebugging(kDebugMode);
-
-        await (controller.platform as AndroidWebViewController)
-            .setMediaPlaybackRequiresUserGesture(false);
-      }
-
-      await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
-      await controller.setBackgroundColor(Colors.black);
-
-      await controller.setNavigationDelegate(
-        NavigationDelegate(
-          onProgress: (progress) {
-            if (!mounted) return;
-
-            setState(() {
-              _webProgress = progress;
-            });
-          },
-          onPageStarted: (_) {
-            if (!mounted) return;
-
-            setState(() {
-              _isLoading = true;
-              _hasError = false;
-              _showOverlay = true;
-              _errorMessage = '';
-            });
-          },
-          onPageFinished: (_) async {
-            await _tryImproveWebPlayer();
-            _startAutoplayAttempts();
-
-            if (!mounted) return;
-
-            setState(() {
-              _isLoading = false;
-              _hasError = false;
-              _errorMessage = '';
-            });
-
-            _showTemporaryOverlay();
-          },
-          onWebResourceError: (error) {
-            if (!mounted) return;
-
-            if (error.isForMainFrame == true) {
-              setState(() {
-                _isLoading = false;
-                _hasError = true;
-                _showOverlay = true;
-                _errorMessage = 'No se pudo abrir este canal.';
-              });
-            }
-          },
-        ),
-      );
-
-      _webViewController = controller;
-
-      if (!mounted) return;
-
-      setState(() {
-        _isLoading = true;
-        _hasError = false;
-        _showOverlay = true;
-        _errorMessage = '';
-      });
-
-      await controller.loadRequest(
-        Uri.parse(channel.webUrl),
-        headers: channel.httpHeaders,
-      );
-    } catch (_) {
-      if (!mounted) return;
-
-      setState(() {
-        _isLoading = false;
-        _hasError = true;
-        _showOverlay = true;
-        _errorMessage = 'No se pudo preparar este canal.';
-      });
-    }
-  }
-
-  void _startAutoplayAttempts() {
-    _stopAutoplayAttempts();
-
-    int attempts = 0;
-
-    _autoPlayTimer = Timer.periodic(
-      const Duration(seconds: 1),
-      (timer) async {
-        attempts++;
-
-        await _tryImproveWebPlayer();
-
-        if (attempts >= 10) {
-          timer.cancel();
-        }
-      },
-    );
-  }
-
-  void _stopAutoplayAttempts() {
-    _autoPlayTimer?.cancel();
-    _autoPlayTimer = null;
-  }
-
   void _stopOverlayTimer() {
     _overlayTimer?.cancel();
     _overlayTimer = null;
@@ -282,115 +155,6 @@ class _VideoPanelState extends State<VideoPanel> {
     });
   }
 
-  Future<void> _tryImproveWebPlayer() async {
-    final controller = _webViewController;
-
-    if (controller == null) return;
-
-    try {
-      await controller.runJavaScript('''
-        (function() {
-          document.body.style.backgroundColor = 'black';
-          document.documentElement.style.backgroundColor = 'black';
-          document.body.style.margin = '0';
-          document.body.style.padding = '0';
-          document.documentElement.style.margin = '0';
-          document.documentElement.style.padding = '0';
-          document.body.style.overflow = 'hidden';
-
-          const videos = document.querySelectorAll('video');
-
-          videos.forEach(function(video) {
-            video.setAttribute('playsinline', 'true');
-            video.setAttribute('webkit-playsinline', 'true');
-            video.setAttribute('autoplay', 'true');
-
-            video.autoplay = true;
-            video.muted = false;
-            video.volume = 1.0;
-            video.style.backgroundColor = 'black';
-
-            const promise = video.play();
-
-            if (promise !== undefined) {
-              promise.catch(function() {
-                video.muted = true;
-                video.play().catch(function() {});
-              });
-            }
-          });
-
-          const iframes = document.querySelectorAll('iframe');
-
-          iframes.forEach(function(iframe) {
-            try {
-              let src = iframe.src || '';
-
-              if (!src) return;
-
-              let params = [];
-
-              if (!src.includes('autoplay=')) {
-                params.push('autoplay=1');
-              }
-
-              if (!src.includes('mute=')) {
-                params.push('mute=0');
-              }
-
-              if (!src.includes('playsinline=')) {
-                params.push('playsinline=1');
-              }
-
-              if (params.length > 0) {
-                const separator = src.includes('?') ? '&' : '?';
-                iframe.src = src + separator + params.join('&');
-              }
-
-              iframe.allow =
-                'autoplay; fullscreen; encrypted-media; picture-in-picture';
-
-              iframe.setAttribute(
-                'allow',
-                'autoplay; fullscreen; encrypted-media; picture-in-picture'
-              );
-            } catch (e) {}
-          });
-
-          const possiblePlayButtons = document.querySelectorAll(
-            'button, [role="button"], .play, .play-button, .vjs-play-control, .dm-player-control-play'
-          );
-
-          possiblePlayButtons.forEach(function(button) {
-            try {
-              const label = (
-                button.getAttribute('aria-label') ||
-                button.getAttribute('title') ||
-                button.innerText ||
-                ''
-              ).toLowerCase();
-
-              const className = button.className
-                ? button.className.toString().toLowerCase()
-                : '';
-
-              if (
-                label.includes('play') ||
-                label.includes('reproducir') ||
-                label.includes('mirar') ||
-                className.includes('play')
-              ) {
-                button.click();
-              }
-            } catch (e) {}
-          });
-        })();
-      ''');
-    } catch (_) {
-      // Algunas páginas bloquean JavaScript externo.
-    }
-  }
-
   Future<void> _disposeVideoController() async {
     final controller = _videoController;
 
@@ -406,7 +170,6 @@ class _VideoPanelState extends State<VideoPanel> {
 
   @override
   void dispose() {
-    _stopAutoplayAttempts();
     _stopOverlayTimer();
     _disposeVideoController();
     super.dispose();
@@ -452,16 +215,6 @@ class _VideoPanelState extends State<VideoPanel> {
       );
     }
 
-    if (channel.isWebView) {
-      final controller = _webViewController;
-
-      if (controller == null) {
-        return const SizedBox.shrink();
-      }
-
-      return WebViewWidget(controller: controller);
-    }
-
     final controller = _videoController;
 
     if (controller == null || !controller.value.isInitialized) {
@@ -500,16 +253,6 @@ class _VideoPanelState extends State<VideoPanel> {
                 fontWeight: FontWeight.w700,
               ),
             ),
-            if (channel?.isWebView == true) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Preparando $_webProgress%',
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 15,
-                ),
-              ),
-            ],
           ],
         ),
       ),

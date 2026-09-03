@@ -5,7 +5,9 @@ Aplicación móvil desarrollada con Flutter para reproducción de canales de tel
 ## Características
 
 - Reproducción de streams HLS.
-- Listado de canales desde archivo JSON.
+- Grilla remota actualizable sin reinstalar la aplicación.
+- Respaldo local automático cuando no hay conexión.
+- Indicador visible del origen de la lista: en línea o respaldo.
 - Interfaz simple y adaptable.
 - Pruebas en Android y TV Box.
 - Integración con reproductor multimedia.

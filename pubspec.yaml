@@ -2,7 +2,7 @@ name: tv_paraguay
 description: App de TV Paraguay para reproducir canales nacionales.
 publish_to: "none"
 
-version: 1.0.0+1
+version: 1.1.0+2
 
 environment:
   sdk: ">=3.7.0 <4.0.0"
@@ -13,9 +13,7 @@ dependencies:
 
   http: ^1.2.2
   video_player: ^2.9.2
-  webview_flutter: ^4.10.0
   cupertino_icons: ^1.0.8
-  webview_flutter_android: ^4.10.1
 
 dev_dependencies:
   flutter_test:
