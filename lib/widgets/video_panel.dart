@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
 import '../models/channel.dart';
+import '../services/stream_resolver.dart';
 
 class VideoPanel extends StatefulWidget {
   final Channel? channel;
@@ -24,6 +25,14 @@ class VideoPanel extends StatefulWidget {
 
 class _VideoPanelState extends State<VideoPanel> {
   VideoPlayerController? _videoController;
+  final StreamResolver _streamResolver = StreamResolver();
+  VoidCallback? _videoListener;
+  Timer? _renewalTimer;
+  Timer? _recoveryTimer;
+  Timer? _stabilityTimer;
+  int _playbackGeneration = 0;
+  int _recoveryAttempts = 0;
+  bool _isResolvingStream = false;
 
   Timer? _overlayTimer;
 
@@ -48,6 +57,7 @@ class _VideoPanelState extends State<VideoPanel> {
     final channelChanged =
         oldChannel?.id != newChannel?.id ||
         oldChannel?.streamUrl != newChannel?.streamUrl ||
+        oldChannel?.webUrl != newChannel?.webUrl ||
         oldChannel?.playerType != newChannel?.playerType ||
         !mapEquals(oldChannel?.httpHeaders, newChannel?.httpHeaders);
 
@@ -62,11 +72,15 @@ class _VideoPanelState extends State<VideoPanel> {
 
   Future<void> _setupPlayer() async {
     final channel = widget.channel;
+    final generation = ++_playbackGeneration;
+    _recoveryAttempts = 0;
+    _isResolvingStream = false;
+    _cancelPlaybackTimers();
 
     _stopOverlayTimer();
     await _disposeVideoController();
 
-    if (!mounted) return;
+    if (!mounted || generation != _playbackGeneration) return;
 
     setState(() {
       _isLoading = true;
@@ -91,27 +105,71 @@ class _VideoPanelState extends State<VideoPanel> {
       return;
     }
 
-    await _setupHls(channel);
+    await _setupHls(channel, generation);
   }
 
-  Future<void> _setupHls(Channel channel) async {
+  bool _isCurrentPlayback(Channel channel, int generation) =>
+      mounted &&
+      generation == _playbackGeneration &&
+      widget.channel?.id == channel.id;
+
+  Future<void> _setupHls(
+    Channel channel,
+    int generation, {
+    bool renewal = false,
+  }) async {
+    if (!_isCurrentPlayback(channel, generation) || _isResolvingStream) return;
+    _isResolvingStream = true;
+    VideoPlayerController? candidate;
     try {
-      if (channel.streamUrl.trim().isEmpty) {
-        throw Exception('Este canal no tiene streamUrl');
+      final stream = await _streamResolver.resolve(channel);
+      if (!_isCurrentPlayback(channel, generation)) return;
+      final controller =
+          candidate = VideoPlayerController.networkUrl(
+            stream.uri,
+            httpHeaders: stream.headers,
+          );
+
+      // Keep a working picture while a signed URL is renewed in the background.
+      await controller.initialize().timeout(const Duration(seconds: 20));
+      if (!_isCurrentPlayback(channel, generation)) return;
+      await controller.setLooping(true);
+      if (!_isCurrentPlayback(channel, generation)) return;
+
+      final previous = _videoController;
+      final previousListener = _videoListener;
+      if (previous != null) {
+        try {
+          await previous.pause();
+        } catch (_) {}
+      }
+      if (!_isCurrentPlayback(channel, generation)) return;
+      _videoController = controller;
+      _videoListener = () {
+        if (!_isCurrentPlayback(channel, generation) ||
+            _videoController != controller ||
+            !controller.value.hasError) {
+          return;
+        }
+        setState(() {
+          _hasError = true;
+          _isLoading = false;
+          _errorMessage =
+              'La señal se interrumpió. Reintentá o elegí otro canal.';
+        });
+        _scheduleRecovery(channel, generation);
+      };
+      controller.addListener(_videoListener!);
+      if (previous != null) {
+        unawaited(_releaseController(previous, previousListener));
       }
 
-      final controller = VideoPlayerController.networkUrl(
-        Uri.parse(channel.streamUrl),
-        httpHeaders: channel.httpHeaders,
-      );
-
-      _videoController = controller;
-
-      await controller.initialize();
-      await controller.setLooping(true);
       await controller.play();
 
-      if (!mounted) return;
+      if (!_isCurrentPlayback(channel, generation)) return;
+      if (controller.value.hasError) {
+        throw StateError('El reproductor rechazó la señal.');
+      }
 
       setState(() {
         _isLoading = false;
@@ -119,17 +177,96 @@ class _VideoPanelState extends State<VideoPanel> {
         _errorMessage = '';
       });
 
-      _showTemporaryOverlay();
-    } catch (_) {
-      if (!mounted) return;
-
-      setState(() {
-        _isLoading = false;
-        _hasError = true;
-        _showOverlay = true;
-        _errorMessage = 'Canal no disponible. Probá actualizar o elegir otro canal.';
+      if (!renewal) _showTemporaryOverlay();
+      _recoveryTimer?.cancel();
+      _recoveryTimer = null;
+      _stabilityTimer?.cancel();
+      _stabilityTimer = Timer(const Duration(seconds: 30), () {
+        if (_isCurrentPlayback(channel, generation) &&
+            _videoController == controller &&
+            !controller.value.hasError) {
+          _recoveryAttempts = 0;
+        }
       });
+      _renewalTimer?.cancel();
+      if (_streamResolver.needsRenewal(channel)) {
+        _renewalTimer = Timer(const Duration(minutes: 5), () {
+          if (_isCurrentPlayback(channel, generation)) {
+            _setupHls(channel, generation, renewal: true);
+          }
+        });
+      }
+    } catch (error) {
+      if (!_isCurrentPlayback(channel, generation)) return;
+
+      final previousStillWorks =
+          renewal &&
+          _videoController != null &&
+          _videoController!.value.isInitialized &&
+          !_videoController!.value.hasError;
+      if (!previousStillWorks) {
+        setState(() {
+          _isLoading = false;
+          _hasError = true;
+          _showOverlay = true;
+          _errorMessage =
+              error is StreamResolutionException
+                  ? error.message
+                  : 'Canal no disponible. Probá actualizar o elegir otro canal.';
+        });
+      }
+      if (previousStillWorks) {
+        _renewalTimer?.cancel();
+        _renewalTimer = Timer(const Duration(minutes: 5), () {
+          if (_isCurrentPlayback(channel, generation)) {
+            _recoveryAttempts = 0;
+            _setupHls(channel, generation, renewal: true);
+          }
+        });
+      } else if (error is! StreamResolutionException || error.retryable) {
+        _scheduleRecovery(channel, generation);
+      }
+    } finally {
+      if (candidate != null && candidate != _videoController) {
+        unawaited(_releaseController(candidate, null));
+      }
+      if (_isCurrentPlayback(channel, generation)) _isResolvingStream = false;
     }
+  }
+
+  void _scheduleRecovery(Channel channel, int generation) {
+    if (!_streamResolver.needsRenewal(channel) ||
+        _recoveryTimer != null ||
+        _recoveryAttempts >= 2 ||
+        !_isCurrentPlayback(channel, generation)) {
+      return;
+    }
+    _recoveryAttempts++;
+    _recoveryTimer = Timer(const Duration(seconds: 3), () {
+      _recoveryTimer = null;
+      if (_isCurrentPlayback(channel, generation)) {
+        _setupHls(channel, generation, renewal: _videoController != null);
+      }
+    });
+  }
+
+  void _cancelPlaybackTimers() {
+    _renewalTimer?.cancel();
+    _renewalTimer = null;
+    _recoveryTimer?.cancel();
+    _recoveryTimer = null;
+    _stabilityTimer?.cancel();
+    _stabilityTimer = null;
+  }
+
+  Future<void> _releaseController(
+    VideoPlayerController controller,
+    VoidCallback? listener,
+  ) async {
+    if (listener != null) controller.removeListener(listener);
+    try {
+      await controller.dispose();
+    } catch (_) {}
   }
 
   void _stopOverlayTimer() {
@@ -157,19 +294,23 @@ class _VideoPanelState extends State<VideoPanel> {
 
   Future<void> _disposeVideoController() async {
     final controller = _videoController;
+    final listener = _videoListener;
+    _videoController = null;
+    _videoListener = null;
 
     if (controller != null) {
       try {
         await controller.pause();
-        await controller.dispose();
       } catch (_) {}
+      await _releaseController(controller, listener);
     }
-
-    _videoController = null;
   }
 
   @override
   void dispose() {
+    _playbackGeneration++;
+    _cancelPlaybackTimers();
+    _streamResolver.dispose();
     _stopOverlayTimer();
     _disposeVideoController();
     super.dispose();
@@ -186,9 +327,7 @@ class _VideoPanelState extends State<VideoPanel> {
         color: Colors.black,
         child: Stack(
           children: [
-            Positioned.fill(
-              child: _buildContent(channel),
-            ),
+            Positioned.fill(child: _buildContent(channel)),
             if (_isLoading) _buildLoadingOverlay(channel),
             if (_hasError) _buildErrorOverlay(channel),
             if (!_isLoading && !_hasError && channel != null && _showOverlay)
@@ -324,10 +463,7 @@ class _VideoPanelState extends State<VideoPanel> {
         opacity: _showOverlay ? 1 : 0,
         duration: const Duration(milliseconds: 220),
         child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 10,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
             color: const Color.fromRGBO(0, 0, 0, 0.76),
             borderRadius: BorderRadius.circular(16),
@@ -357,10 +493,7 @@ class _VideoPanelState extends State<VideoPanel> {
               ),
               const SizedBox(width: 10),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 9,
-                  vertical: 4,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.redAccent,
                   borderRadius: BorderRadius.circular(18),
