@@ -68,7 +68,7 @@ void main() {
           }
           await tester.pumpWidget(const SizedBox.shrink());
           for (var i = 0; i < 5; i++) { await tester.pump(); }
-        }, () => MockClient((_) async => http.Response(fixture, 200)));
+        }, () => MockClient((_) async => http.Response.bytes(utf8.encode(fixture), 200)));
         expect(tester.takeException(), isNull);
       });
     }

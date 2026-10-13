@@ -59,7 +59,7 @@ void main() {
       await body();
       await tester.pumpWidget(const SizedBox.shrink());
       await flush(tester);
-    }, () => MockClient((_) async => http.Response(fixture, 200)));
+    }, () => MockClient((_) async => http.Response.bytes(utf8.encode(fixture), 200)));
     expect(tester.takeException(), isNull);
   }
 
@@ -113,7 +113,7 @@ void main() {
       await flush(tester);
       expect(player.sources.last, 'https://example.test/2.m3u8');
       expect(isFullscreen(tester), isTrue);
-      await tester.sendKeyEvent(LogicalKeyboardKey.channelUp);
+      await tester.sendKeyEvent(LogicalKeyboardKey.channelUp, physicalKey: PhysicalKeyboardKey.arrowUp);
       await flush(tester);
       expect(player.sources.last, 'https://example.test/3.m3u8');
       await tester.sendKeyEvent(LogicalKeyboardKey.digit1);
@@ -142,11 +142,11 @@ void main() {
   testWidgets('back closes visible controls before exiting; remote Back has the same order', (tester) async {
     await app(tester, () async {
       await openFullscreen(tester);
-      await tester.sendKeyEvent(LogicalKeyboardKey.goBack);
+      await tester.sendKeyEvent(LogicalKeyboardKey.goBack, physicalKey: PhysicalKeyboardKey.escape);
       await flush(tester);
       expect(isFullscreen(tester), isTrue);
       expect(find.byKey(const ValueKey('exit-fullscreen')), findsNothing);
-      await tester.sendKeyEvent(LogicalKeyboardKey.goBack);
+      await tester.sendKeyEvent(LogicalKeyboardKey.goBack, physicalKey: PhysicalKeyboardKey.escape);
       await flush(tester);
       expect(isFullscreen(tester), isFalse);
     });
@@ -195,7 +195,7 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
       await flush(tester);
     }, () => MockClient((request) async => request.url.host == 'gentv.desdepylabs.com'
-        ? delayed.future : http.Response(jsonEncode(channels), 200)));
+        ? delayed.future : http.Response.bytes(utf8.encode(jsonEncode(channels)), 200)));
     expect(tester.takeException(), isNull);
   });
 }
