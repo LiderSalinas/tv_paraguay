@@ -38,7 +38,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _controlsVisible = false;
   bool _remoteMode = false;
   bool _scrolling = false;
-  bool _changingFullScreen = false;
+  Future<void> _systemUiTask = Future<void>.value();
+  int _systemUiGeneration = 0;
   int _pointersDown = 0;
   bool _largeListText = false;
   String _errorMessage = '';
@@ -64,7 +65,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _listScroll.dispose();
     _panelScroll.dispose();
     _playback.dispose();
-    unawaited(_restoreSystemUi());
+    _systemUiGeneration++;
+    unawaited(_systemUiTask.whenComplete(_restoreSystemUi));
     super.dispose();
   }
 
@@ -235,10 +237,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
   }
 
-  Future<void> _toggleFullScreen() async {
-    if (_changingFullScreen) return;
-    _changingFullScreen = true;
+  Future<void> _toggleFullScreen() {
     final enter = !_isFullScreen;
+    final generation = ++_systemUiGeneration;
     setState(() {
       _isFullScreen = enter;
       _panelOpen = false;
@@ -247,24 +248,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _controlsVisible = enter;
     });
     _numberTimer?.cancel();
-    try {
-      if (enter) {
-        await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-        await SystemChrome.setPreferredOrientations([
-          DeviceOrientation.landscapeLeft,
-          DeviceOrientation.landscapeRight,
-        ]);
-      } else {
-        await _restoreSystemUi();
-      }
-    } finally {
-      _changingFullScreen = false;
-      if (mounted) {
-        _tvFocusNode.requestFocus();
-        _restartControlsTimer();
-        _scrollToFocus();
-      }
-    }
+    _tvFocusNode.requestFocus();
+    _restartControlsTimer();
+    _scrollToFocus();
+
+    // Update the interface immediately; serialize Android changes and discard
+    // stale requests so a quick Back/exit during rotation is never ignored.
+    _systemUiTask = _systemUiTask.then((_) async {
+      if (!mounted || generation != _systemUiGeneration) return;
+      await SystemChrome.setEnabledSystemUIMode(
+        enter ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
+      );
+      if (!mounted || generation != _systemUiGeneration) return;
+      await SystemChrome.setPreferredOrientations(enter
+          ? [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]
+          : [DeviceOrientation.portraitUp,
+              DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
+    }).catchError((Object error) {
+      debugPrint('No se pudo ajustar la orientación: $error');
+    });
+    return _systemUiTask;
   }
 
   bool _handleBack() {
