@@ -37,7 +37,7 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Preparar logo e iconos originales
+      - name: Preparar logo, iconos y Manrope
         run: python tools/prepare_branding.py
 
       - name: Instalar dependencias
@@ -46,8 +46,16 @@ jobs:
       - name: Analizar código
         run: flutter analyze
 
-      - name: Probar renovación y reproducción
+      - name: Probar reproducción, controles y diseño
         run: flutter test
+
+      - name: Guardar vistas del diseño
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv-paraguay-vistas-ux
+          path: build/ux-previews/*.png
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Compilar APK
         env:

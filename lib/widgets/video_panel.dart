@@ -5,18 +5,26 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
 import '../models/channel.dart';
+import '../models/playback_status.dart';
+import '../theme/app_theme.dart';
 import '../services/stream_resolver.dart';
 
 class VideoPanel extends StatefulWidget {
   final Channel? channel;
   final bool isFullScreen;
   final VoidCallback? onToggleFullScreen;
+  final VoidCallback? onVideoTap;
+  final bool? controlsVisible;
+  final ValueChanged<PlaybackStatus>? onPlaybackStatusChanged;
 
   const VideoPanel({
     super.key,
     required this.channel,
     this.isFullScreen = false,
     this.onToggleFullScreen,
+    this.onVideoTap,
+    this.controlsVisible,
+    this.onPlaybackStatusChanged,
   });
 
   @override
@@ -41,6 +49,31 @@ class _VideoPanelState extends State<VideoPanel> {
   bool _showOverlay = true;
 
   String _errorMessage = '';
+  PlaybackStatus _reportedStatus = PlaybackStatus.idle;
+
+  void _publishStatus(PlaybackStatus status) {
+    if (_reportedStatus == status || !mounted) return;
+    setState(() => _reportedStatus = status);
+    final generation = _playbackGeneration;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && generation == _playbackGeneration &&
+          _reportedStatus == status) {
+        widget.onPlaybackStatusChanged?.call(status);
+      }
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  void _publishControllerStatus(VideoPlayerController controller) {
+    final value = controller.value;
+    _publishStatus(value.hasError
+        ? PlaybackStatus.error
+        : !value.isInitialized || value.isBuffering
+            ? PlaybackStatus.loading
+            : value.isPlaying
+                ? PlaybackStatus.playing
+                : PlaybackStatus.paused);
+  }
 
   @override
   void initState() {
@@ -89,10 +122,13 @@ class _VideoPanelState extends State<VideoPanel> {
       _errorMessage = '';
     });
 
+    _publishStatus(PlaybackStatus.loading);
+
     if (channel == null) {
       setState(() {
         _isLoading = false;
       });
+      _publishStatus(PlaybackStatus.idle);
       return;
     }
 
@@ -102,6 +138,7 @@ class _VideoPanelState extends State<VideoPanel> {
         _hasError = true;
         _errorMessage = 'Esta versión admite únicamente señales HLS directas.';
       });
+      _publishStatus(PlaybackStatus.error);
       return;
     }
 
@@ -147,10 +184,11 @@ class _VideoPanelState extends State<VideoPanel> {
       _videoController = controller;
       _videoListener = () {
         if (!_isCurrentPlayback(channel, generation) ||
-            _videoController != controller ||
-            !controller.value.hasError) {
+            _videoController != controller) {
           return;
         }
+        _publishControllerStatus(controller);
+        if (!controller.value.hasError) return;
         setState(() {
           _hasError = true;
           _isLoading = false;
@@ -177,6 +215,7 @@ class _VideoPanelState extends State<VideoPanel> {
         _errorMessage = '';
       });
 
+      _publishControllerStatus(controller);
       if (!renewal) _showTemporaryOverlay();
       _recoveryTimer?.cancel();
       _recoveryTimer = null;
@@ -215,6 +254,7 @@ class _VideoPanelState extends State<VideoPanel> {
                   : 'Canal no disponible. Probá actualizar o elegir otro canal.';
         });
       }
+      if (!previousStillWorks) _publishStatus(PlaybackStatus.error);
       if (previousStillWorks) {
         _renewalTimer?.cancel();
         _renewalTimer = Timer(const Duration(minutes: 5), () {
@@ -276,6 +316,7 @@ class _VideoPanelState extends State<VideoPanel> {
 
   void _showTemporaryOverlay() {
     _stopOverlayTimer();
+    if (widget.controlsVisible != null) return;
 
     if (!mounted) return;
 
@@ -319,21 +360,21 @@ class _VideoPanelState extends State<VideoPanel> {
   @override
   Widget build(BuildContext context) {
     final channel = widget.channel;
-
+    final showControls = widget.controlsVisible ?? _showOverlay;
     return GestureDetector(
-      behavior: HitTestBehavior.translucent,
-      onTap: _showTemporaryOverlay,
-      child: Container(
+      key: const ValueKey('video-touch-surface'),
+      behavior: HitTestBehavior.opaque,
+      onTap: widget.onVideoTap ?? _showTemporaryOverlay,
+      child: ColoredBox(
         color: Colors.black,
         child: Stack(
           children: [
             Positioned.fill(child: _buildContent(channel)),
-            if (_isLoading) _buildLoadingOverlay(channel),
-            if (_hasError) _buildErrorOverlay(channel),
-            if (!_isLoading && !_hasError && channel != null && _showOverlay)
-              _buildCleanChannelBadge(channel),
-            if (!_isLoading && !_hasError && channel != null && _showOverlay)
-              _buildFullScreenButton(),
+            if (_isLoading) Positioned.fill(child: _buildLoadingOverlay()),
+            if (_hasError) Positioned.fill(child: _buildErrorOverlay(channel)),
+            if (channel != null && showControls && !_isLoading && !_hasError)
+              _buildChannelBadge(channel),
+            if (showControls && !widget.isFullScreen) _buildFullScreenButton(),
           ],
         ),
       ),
@@ -342,27 +383,16 @@ class _VideoPanelState extends State<VideoPanel> {
 
   Widget _buildContent(Channel? channel) {
     if (channel == null) {
-      return const Center(
-        child: Text(
-          'Seleccioná un canal',
-          style: TextStyle(
-            color: Colors.white70,
-            fontSize: 22,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      );
+      return const Center(child: Text('Elegí un canal',
+          style: TextStyle(color: AppColors.secondary, fontSize: 18)));
     }
-
     final controller = _videoController;
-
     if (controller == null || !controller.value.isInitialized) {
       return const SizedBox.shrink();
     }
-
     return Center(
       child: FittedBox(
-        fit: widget.isFullScreen ? BoxFit.contain : BoxFit.contain,
+        fit: BoxFit.contain,
         child: SizedBox(
           width: controller.value.size.width,
           height: controller.value.size.height,
@@ -372,171 +402,85 @@ class _VideoPanelState extends State<VideoPanel> {
     );
   }
 
-  Widget _buildLoadingOverlay(Channel? channel) {
-    return Container(
-      color: const Color.fromRGBO(0, 0, 0, 0.78),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircularProgressIndicator(
-              color: Colors.redAccent,
-              strokeWidth: 3,
-            ),
-            const SizedBox(height: 18),
-            Text(
-              channel == null ? 'Cargando...' : 'Cargando canal...',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
+  Widget _buildLoadingOverlay() => ColoredBox(
+        color: Colors.black.withValues(alpha: 0.6),
+        child: const Center(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            SizedBox(width: 26, height: 26,
+                child: CircularProgressIndicator(strokeWidth: 2.5)),
+            SizedBox(height: 12),
+            Text('Cargando…', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+          ]),
         ),
-      ),
-    );
-  }
+      );
 
-  Widget _buildErrorOverlay(Channel? channel) {
-    return Container(
-      color: const Color.fromRGBO(0, 0, 0, 0.88),
-      padding: const EdgeInsets.all(24),
-      child: Center(
-        child: Container(
-          padding: const EdgeInsets.all(22),
-          decoration: BoxDecoration(
-            color: const Color.fromRGBO(22, 24, 28, 0.96),
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(
-              color: const Color.fromRGBO(255, 255, 255, 0.10),
-            ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.tv_off_rounded,
-                color: Colors.redAccent,
-                size: 58,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                channel?.name ?? 'Canal',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 23,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                _errorMessage,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton.icon(
+  Widget _buildErrorOverlay(Channel? channel) => ColoredBox(
+        color: AppColors.background,
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(14),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.tv_off_rounded, color: AppColors.secondary, size: 28),
+              const SizedBox(height: 8),
+              Text(channel?.name ?? 'Canal', textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 6),
+              Text(_errorMessage, textAlign: TextAlign.center,
+                  style: const TextStyle(color: AppColors.secondary, fontSize: 14)),
+              const SizedBox(height: 8),
+              FilledButton.icon(
                 onPressed: _setupPlayer,
-                icon: const Icon(Icons.refresh),
+                icon: const Icon(Icons.refresh_rounded),
                 label: const Text('Reintentar'),
+                style: FilledButton.styleFrom(minimumSize: const Size(120, 48)),
               ),
-            ],
+            ]),
           ),
         ),
-      ),
-    );
-  }
+      );
 
-  Widget _buildCleanChannelBadge(Channel channel) {
-    final channelNumber = channel.id.toString().padLeft(2, '0');
-
-    return Positioned(
-      left: 16,
-      top: 16,
-      child: AnimatedOpacity(
-        opacity: _showOverlay ? 1 : 0,
-        duration: const Duration(milliseconds: 220),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: BoxDecoration(
-            color: const Color.fromRGBO(0, 0, 0, 0.76),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: const Color.fromRGBO(255, 255, 255, 0.10),
+  Widget _buildChannelBadge(Channel channel) => Positioned(
+        left: 12,
+        right: 12,
+        top: 12,
+        child: Align(
+          alignment: Alignment.topLeft,
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 480),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.background.withValues(alpha: 0.9),
+              borderRadius: BorderRadius.circular(12),
             ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                channelNumber,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 28,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
+            child: Row(children: [
+              Text(channel.id.toString().padLeft(2, '0'),
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
               const SizedBox(width: 12),
-              Text(
-                channel.name,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 19,
-                  fontWeight: FontWeight.w800,
-                ),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(channel.name, maxLines: 2, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                  Text(_reportedStatus.label, maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: AppColors.secondary, fontSize: 12)),
+                ]),
               ),
-              const SizedBox(width: 10),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.redAccent,
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: const Text(
-                  'EN VIVO',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-            ],
+            ]),
           ),
         ),
-      ),
-    );
-  }
+      );
 
-  Widget _buildFullScreenButton() {
-    return Positioned(
-      right: 16,
-      top: 16,
-      child: Material(
-        color: const Color.fromRGBO(0, 0, 0, 0.66),
-        borderRadius: BorderRadius.circular(16),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: () {
-            _showTemporaryOverlay();
-            widget.onToggleFullScreen?.call();
-          },
-          child: Padding(
-            padding: const EdgeInsets.all(11),
-            child: Icon(
-              widget.isFullScreen ? Icons.fullscreen_exit : Icons.fullscreen,
-              color: Colors.white,
-              size: 30,
-            ),
+  Widget _buildFullScreenButton() => Positioned(
+        right: 8,
+        bottom: 8,
+        child: Material(
+          color: AppColors.background.withValues(alpha: 0.85),
+          borderRadius: BorderRadius.circular(12),
+          child: IconButton(
+            key: const ValueKey('enter-fullscreen'),
+            tooltip: 'Pantalla completa',
+            onPressed: widget.onToggleFullScreen,
+            icon: const Icon(Icons.fullscreen_rounded, size: 28),
           ),
         ),
-      ),
-    );
-  }
+      );
 }
