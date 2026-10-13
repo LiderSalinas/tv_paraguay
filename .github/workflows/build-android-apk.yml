@@ -6,10 +6,14 @@ on:
     branches:
       - feature/embed-player
       - codex/remote-channel-refresh
+      - codex/renovacion-canales-hls
     paths:
       - ".github/workflows/build-android-apk.yml"
       - "android/**"
+      - "branding/**"
       - "lib/**"
+      - "tools/**"
+      - "test/**"
       - "canales.json"
       - "pubspec.yaml"
       - "pubspec.lock"
@@ -33,19 +37,35 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Preparar logo e iconos originales
+        run: python tools/prepare_branding.py
+
       - name: Instalar dependencias
         run: flutter pub get
 
       - name: Analizar código
         run: flutter analyze
 
-      - name: Compilar APK
-        run: flutter build apk --release
+      - name: Probar renovación y reproducción
+        run: flutter test
 
-      - name: Guardar APK
+      - name: Compilar APK
+        env:
+          TV_PARAGUAY_TEST_APK: ${{ github.ref_name == 'codex/renovacion-canales-hls' && '1' || '0' }}
+        run: flutter build apk --release --split-per-abi
+
+      - name: Guardar APK para teléfono
         uses: actions/upload-artifact@v4
         with:
-          name: tv-paraguay-android
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: tv-paraguay-telefono-arm64
+          path: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Guardar APK para TV Box de 32 bits
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv-paraguay-tvbox-armv7
+          path: build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
           if-no-files-found: error
           retention-days: 14
