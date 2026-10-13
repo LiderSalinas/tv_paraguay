@@ -26,6 +26,13 @@ Future<void> flush(WidgetTester tester) async {
   for (var i = 0; i < 8; i++) {
     await tester.pump();
   }
+  // Platform-channel replies and Stream.value cancellation use the event loop.
+  await tester.runAsync(() async {
+    await Future<void>.delayed(Duration.zero);
+  });
+  for (var i = 0; i < 4; i++) {
+    await tester.pump();
+  }
 }
 
 Future<void> openFullscreen(WidgetTester tester) async {
@@ -56,6 +63,7 @@ void main() {
     await http.runWithClient(() async {
       await tester.pumpWidget(const TvParaguayApp());
       await flush(tester);
+      expect(player.sources, ['https://example.test/1.m3u8']);
       await body();
       await tester.pumpWidget(const SizedBox.shrink());
       await flush(tester);

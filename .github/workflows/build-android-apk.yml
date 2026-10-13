@@ -50,11 +50,12 @@ jobs:
         run: flutter test
 
       - name: Guardar vistas del diseño
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: tv-paraguay-vistas-ux
           path: build/ux-previews/*.png
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
 
       - name: Compilar APK

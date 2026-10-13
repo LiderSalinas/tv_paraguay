@@ -111,18 +111,16 @@ class _VideoPanelState extends State<VideoPanel> {
     _cancelPlaybackTimers();
 
     _stopOverlayTimer();
-    await _disposeVideoController();
-
-    if (!mounted || generation != _playbackGeneration) return;
-
     setState(() {
-      _isLoading = true;
+      _isLoading = channel != null;
       _hasError = false;
       _showOverlay = true;
       _errorMessage = '';
     });
 
-    _publishStatus(PlaybackStatus.loading);
+    _publishStatus(channel == null ? PlaybackStatus.idle : PlaybackStatus.loading);
+    await _disposeVideoController();
+    if (!mounted || generation != _playbackGeneration) return;
 
     if (channel == null) {
       setState(() {
