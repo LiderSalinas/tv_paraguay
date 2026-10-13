@@ -23,7 +23,9 @@ buffer muestran “Cargando…”.
   selección, foco y altura que responde al tamaño de texto de Android.
 - `lib/widgets/video_panel.dart`: controlador HLS, información del canal y estados.
   Conserva resolución, renovación cada cinco minutos y recuperación limitada.
-- `assets/fonts/Manrope-Variable.ttf`: fuente local, sin solicitudes de red.
+- `assets/fonts/Manrope-Regular.ttf`, `Manrope-SemiBold.ttf` y
+  `Manrope-Bold.ttf`: pesos 400, 600 y 700 locales, sin solicitudes de red.
+  Se generaron como instancias estáticas de la fuente variable oficial.
 - `assets/fonts/OFL.txt`: licencia de la fuente.
 - `branding/tv_paraguay_assets.json`: imagen original, iconos y tipografía con hash.
 - `tools/prepare_branding.py`: verifica y materializa los recursos antes del build.
@@ -116,5 +118,7 @@ imágenes, actualizar el manifiesto de recursos y preservar sus licencias.
 Mantener el reproductor en la misma posición con clave; moverlo entre ramas de
 widgets puede destruirlo y reiniciar la señal. Los cambios visuales deben
 conservar las pruebas de renovación y la correspondencia entre ID y canal.
+Los cambios de orientación se serializan y descartan solicitudes anteriores;
+la interfaz responde de inmediato a una salida rápida durante la rotación.
 Los temporizadores se cancelan al cerrar la pantalla y al suspender controles;
 no iniciar conteos nuevos desde `build` ni desde cada actualización de posición.

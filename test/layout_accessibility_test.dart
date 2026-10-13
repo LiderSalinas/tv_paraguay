@@ -35,13 +35,20 @@ void main() {
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.resetPhysicalSize);
         addTearDown(tester.view.resetDevicePixelRatio);
-        final font = FontLoader('Manrope')..addFont(rootBundle.load('assets/fonts/Manrope-Variable.ttf'));
+        final font = FontLoader('Manrope')
+          ..addFont(rootBundle.load('assets/fonts/Manrope-Regular.ttf'))
+          ..addFont(rootBundle.load('assets/fonts/Manrope-SemiBold.ttf'))
+          ..addFont(rootBundle.load('assets/fonts/Manrope-Bold.ttf'));
+        final icons = FontLoader('MaterialIcons')
+          ..addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'));
+        await icons.load();
         await font.load();
         final boundary = GlobalKey();
         await http.runWithClient(() async {
           await tester.pumpWidget(RepaintBoundary(
             key: boundary,
             child: MaterialApp(
+              debugShowCheckedModeBanner: false,
               theme: buildAppTheme(),
               builder: (context, child) => MediaQuery(
                 data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(scale)),
