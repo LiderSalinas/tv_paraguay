@@ -531,15 +531,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
       child: Row(
         children: [
+          Image.asset(
+            'assets/branding/tv_paraguay_logo.jpg',
+            width: 52,
+            height: 52,
+            fit: BoxFit.contain,
+            excludeFromSemantics: true,
+          ),
+          const SizedBox(width: 8),
           const Expanded(
-            child: Text(
-              'TV Paraguay',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 28,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.2,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                'TV Paraguay',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.2,
+                ),
               ),
             ),
           ),
