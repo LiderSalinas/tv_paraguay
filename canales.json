@@ -264,7 +264,11 @@
     "streamUrl": "https://video.hostingcaaguazu.com:19360/oasistv/oasistv.m3u8",
     "webUrl": "https://tvonline.com.py/oasistv/",
     "logoUrl": "https://tvonline.com.py/tv/img/oasistv.png",
-    "httpHeaders": {},
+    "httpHeaders": {
+      "User-Agent": "Mozilla/5.0",
+      "Referer": "https://tvonline.com.py/tv/oasistv.html",
+      "Origin": "https://tvonline.com.py"
+    },
     "isActive": true
   },
   {
