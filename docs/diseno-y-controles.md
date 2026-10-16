@@ -1,4 +1,4 @@
-# TV Paraguay: diseño y controles (1.2.0+4)
+# TV Paraguay: diseño y controles (1.2.1+5)
 
 ## Funcionamiento
 
@@ -97,6 +97,10 @@ La aplicación principal utiliza un paquete distinto.
 
 ## Pruebas
 
+- `video_sizing_test.dart`: señales 360p ampliadas a TV/TV Box y teléfono
+  horizontal, reducción de 1080p a un panel pequeño, proporciones 4:3 y vertical,
+  y conservación del controlador al cambiar tamaño o pantalla completa.
+  Mide los límites de la imagen pintada después de sus transformaciones.
 - `fullscreen_ux_test.dart`: toque, selección sin salir, controlador persistente,
   foco/OK, CH+, números, Atrás de Android/mando, actividad y carga pendiente.
 - `layout_accessibility_test.dart`: 320×568, 390×844, 740×360 y 1280×720, con texto
@@ -112,6 +116,33 @@ de un TV Box físico. En los dispositivos reales comprobar toque, orientación,
 foco, Atrás, reproducción y legibilidad desde la distancia habitual.
 
 ## Mantenimiento
+
+### Tamaño de imagen y Ñandutí
+
+La versión 1.2.1 corrige el vídeo pequeño centrado: `SizedBox.expand` impone el
+tamaño disponible al `FittedBox`. `BoxFit.contain` amplía o reduce la imagen y
+conserva sus proporciones. No colocar un `Center` alrededor del `FittedBox`,
+porque afloja las restricciones y deja señales pequeñas a su tamaño nativo.
+Se mantiene el mismo controlador y no se recorta el vídeo para llenar la pantalla.
+Una señal de 16:9 llena una pantalla de 16:9; en otros formatos quedan solamente
+los márgenes necesarios para conservar la imagen completa.
+
+El 16 de octubre de 2026 se verificó que Ñandutí ofrecía HLS oficial de 720p en
+`https://nanduti.b-cdn.net/720p.m3u8`, descubierto desde
+`https://nanduti.com.py/nanduti-tv` y su reproductor público
+`https://argentina-streaming.com/GRadio/nanduti.html`.
+Se comprobaron dos segmentos con H.264 de 1280×720, audio AAC e imagen Ñandutí.
+La grilla y el respaldo integrado reemplazan únicamente el enlace de Ñandutí;
+se conservan su ID 9, logo, nombre y encabezados. La señal anterior era de 640×360.
+
+Para recibir el enlace nuevo basta con **Actualizar canales** y volver a elegir
+Ñandutí. La corrección general del escalado requiere instalar el APK 1.2.1 o
+posterior. Aumentar el tamaño de un vídeo de baja calidad no agrega detalle:
+el tamaño en pantalla y la resolución de la fuente son cuestiones diferentes.
+La prueba real debe confirmar imagen completa, audio, mando y estabilidad en
+el TV Box; las pruebas con reproductor simulado no sustituyen ese paso.
+
+### Conservación de interfaz y reproducción
 
 Centralizar cambios de color y tipografía en el tema. Al agregar fuentes o
 imágenes, actualizar el manifiesto de recursos y preservar sus licencias.

@@ -111,7 +111,7 @@
     "shortName": "ÑTV",
     "category": "Noticias",
     "playerType": "hls",
-    "streamUrl": "https://copacogen.desdeparaguay.net/nandutitv/nandutitv_baja/index.m3u8",
+    "streamUrl": "https://nanduti.b-cdn.net/720p.m3u8",
     "webUrl": "",
     "logoUrl": "https://cdn.jsdelivr.net/gh/LiderSalinas/tv-paraguay-data@main/logos/nanduti-tv.png",
     "httpHeaders": {

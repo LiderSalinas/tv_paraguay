@@ -388,7 +388,9 @@ class _VideoPanelState extends State<VideoPanel> {
     if (controller == null || !controller.value.isInitialized) {
       return const SizedBox.shrink();
     }
-    return Center(
+    // Tight viewport constraints let FittedBox enlarge low-resolution signals.
+    // A Center loosens them and leaves 360p video at its native pixel size.
+    return SizedBox.expand(
       child: FittedBox(
         fit: BoxFit.contain,
         child: SizedBox(
