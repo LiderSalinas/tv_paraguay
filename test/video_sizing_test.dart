@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tv_paraguay/models/channel.dart';
 import 'package:tv_paraguay/widgets/video_panel.dart';
