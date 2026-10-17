@@ -12,10 +12,15 @@ class ResolvedStream {
 }
 
 class StreamResolutionException implements Exception {
-  const StreamResolutionException(this.message, {this.retryable = false});
+  const StreamResolutionException(
+    this.message, {
+    this.retryable = false,
+    this.statusCode,
+  });
 
   final String message;
   final bool retryable;
+  final int? statusCode;
 
   @override
   String toString() => message;
@@ -46,6 +51,14 @@ class StreamResolver {
     'gentv.desdepylabs.com',
     'tvonline.com.py',
     'www.tvonline.com.py',
+    'www.snt.com.py',
+    'snt.com.py',
+    'www.c9n.com.py',
+    'c9n.com.py',
+  };
+
+  static const _broadcastPages = {
+    'www.snt.com.py', 'snt.com.py', 'www.c9n.com.py', 'c9n.com.py',
   };
 
   bool needsRenewal(Channel channel) {
@@ -69,7 +82,9 @@ class StreamResolver {
 
     for (var depth = 0; depth < 3; depth++) {
       final response = await _get(page, referer: referer, refresh: true);
-      final body = utf8.decode(response.bodyBytes, allowMalformed: true);
+      final body = _decode(
+        utf8.decode(response.bodyBytes, allowMalformed: true),
+      );
       final frames = RegExp(
         r'''<iframe\b[^>]*\bsrc\s*=\s*["']([^"']+)["']''',
         caseSensitive: false,
@@ -89,16 +104,20 @@ class StreamResolver {
       for (final source in sources) {
         final uri = _streamUri(source);
         if (uri.host == 'sesion.desdeparaguay.net') continue;
+        final broadcast = _broadcastPages.contains(publisher.host) &&
+            _isBroadcastCdn(uri);
         if (!uri.host.endsWith('.desdeparaguay.net') &&
-            uri.host != 'video.hostingcaaguazu.com') {
+            uri.host != 'video.hostingcaaguazu.com' && !broadcast) {
           continue;
         }
-        return ResolvedStream(uri, {
+        final headers = {
           ...channel.httpHeaders,
           'User-Agent': _userAgent,
           'Referer': page.toString(),
           'Origin': page.origin,
-        });
+        };
+        if (broadcast) return _broadcastStream(uri, headers);
+        return ResolvedStream(uri, headers);
       }
 
       final next =
@@ -115,6 +134,86 @@ class StreamResolver {
 
     throw const StreamResolutionException(
       'El proveedor no publicó una señal HLS disponible. Reintentá más tarde.',
+    );
+  }
+
+  static bool _isBroadcastCdn(Uri uri) =>
+      uri.scheme == 'https' && uri.host.endsWith('.cloudfront.net');
+
+  Future<ResolvedStream> _broadcastStream(
+    Uri master,
+    Map<String, String> headers,
+  ) async {
+    final response = await _get(
+      master, referer: headers['Referer']!, refresh: false,
+    );
+    final manifest = utf8.decode(response.bodyBytes, allowMalformed: true);
+    if (!manifest.contains('#EXTM3U')) {
+      throw const StreamResolutionException(
+        'El proveedor no publicó una lista HLS válida.', retryable: true,
+      );
+    }
+    if (!manifest.contains('#EXT-X-CONTENT-STEERING:')) {
+      return ResolvedStream(master, headers);
+    }
+
+    // Older TV Box players cannot select HLS content-steering pathways.
+    // Follow the default pathway published in the master and keep a declared
+    // alternate for transport failures, without changing provider restrictions.
+    final lines = manifest.split('\n').map((line) => line.trim()).toList();
+    final steering = lines.firstWhere(
+      (line) => line.startsWith('#EXT-X-CONTENT-STEERING:'),
+    );
+    final pathwayPattern = RegExp(r'''PATHWAY-ID="([^"]+)"''');
+    final preferred = pathwayPattern.firstMatch(steering)?.group(1);
+    final routes = <String, List<_HlsVariant>>{};
+    var info = '';
+    for (final line in lines) {
+      if (line.startsWith('#EXT-X-STREAM-INF:')) {
+        info = line;
+      } else if (line.isNotEmpty && !line.startsWith('#') && info.isNotEmpty) {
+        final height = int.tryParse(
+          RegExp(r'RESOLUTION=\d+x(\d+)').firstMatch(info)?.group(1) ?? '',
+        );
+        final pathway = pathwayPattern.firstMatch(info)?.group(1) ?? '';
+        final uri = master.resolve(line);
+        if (height != null && height > 0 && _isBroadcastCdn(uri)) {
+          routes.putIfAbsent(pathway, () => []).add(_HlsVariant(uri, height));
+        }
+        info = '';
+      }
+    }
+    final order = [
+      if (routes.containsKey(preferred)) preferred!,
+      ...routes.keys.where((pathway) => pathway != preferred),
+    ];
+    StreamResolutionException? lastError;
+    for (final pathway in order.take(3)) {
+      final variants = routes[pathway]!..sort((a, b) => a.height.compareTo(b.height));
+      final selected = variants.lastWhere(
+        (variant) => variant.height <= 720, orElse: () => variants.first,
+      );
+      try {
+        final media = await _get(
+          selected.uri, referer: headers['Referer']!, refresh: false,
+        );
+        final text = utf8.decode(media.bodyBytes, allowMalformed: true);
+        if (!text.contains('#EXTM3U') || !text.contains('#EXTINF:') ||
+            text.contains('#EXT-X-ENDLIST')) {
+          throw const StreamResolutionException(
+            'La ruta del proveedor no tiene una señal en vivo.', retryable: true,
+          );
+        }
+        return ResolvedStream(selected.uri, headers);
+      } on StreamResolutionException catch (error) {
+        if (error.statusCode == 401 || error.statusCode == 403) rethrow;
+        lastError = error;
+      }
+    }
+    throw StreamResolutionException(
+      lastError?.message ?? 'No se pudo conectar con una ruta del canal. Reintentá.',
+      retryable: true,
+      statusCode: lastError?.statusCode,
     );
   }
 
@@ -247,6 +346,7 @@ class StreamResolver {
       throw StreamResolutionException(
         'La señal del proveedor no está disponible. Reintentá más tarde.',
         retryable: response.statusCode >= 500,
+        statusCode: response.statusCode,
       );
     }
     if (response.bodyBytes.length > 2000000) {
@@ -269,13 +369,29 @@ class StreamResolver {
     return uri;
   }
 
-  static String _decode(String value) => value
-      .replaceAll('&amp;', '&')
-      .replaceAll('&#38;', '&')
-      .replaceAll(r'\u0026', '&')
-      .replaceAll(r'\/', '/');
+  static String _decode(String value) {
+    var decoded = value;
+    // Some publishers embed JSON in a JavaScript string, escaping it twice.
+    for (var layer = 0; layer < 3; layer++) {
+      final next = decoded
+          .replaceAll('&amp;', '&')
+          .replaceAll('&#38;', '&')
+          .replaceAll(r'\u0026', '&')
+          .replaceAll(r'\/', '/');
+      if (next == decoded) break;
+      decoded = next;
+    }
+    return decoded;
+  }
 
   void dispose() {
     if (_ownsClient) _client.close();
   }
+}
+
+class _HlsVariant {
+  const _HlsVariant(this.uri, this.height);
+
+  final Uri uri;
+  final int height;
 }

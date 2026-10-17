@@ -1,4 +1,4 @@
-# TV Paraguay: diseño y controles (1.2.1+5)
+# TV Paraguay: diseño y controles (1.2.2+6)
 
 ## Funcionamiento
 
@@ -22,7 +22,8 @@ buffer muestran “Cargando…”.
 - `lib/widgets/channel_list.dart`: números, logos, nombres de hasta dos líneas,
   selección, foco y altura que responde al tamaño de texto de Android.
 - `lib/widgets/video_panel.dart`: controlador HLS, información del canal y estados.
-  Conserva resolución, renovación cada cinco minutos y recuperación limitada.
+  Conserva resolución, renovación cada cinco minutos y recuperación con esperas
+  progresivas ante fallas temporales.
 - `assets/fonts/Manrope-Regular.ttf`, `Manrope-SemiBold.ttf` y
   `Manrope-Bold.ttf`: pesos 400, 600 y 700 locales, sin solicitudes de red.
   Se generaron como instancias estáticas de la fuente variable oficial.
@@ -108,7 +109,10 @@ La aplicación principal utiliza un paquete distinto.
   Produce imágenes de la UI real en `build/ux-previews`, usando fuente local y
   señales de prueba; el rectángulo negro corresponde al video simulado.
 - `playback_renewal_test.dart` y `stream_resolver_test.dart`: siguen verificando
-  respuestas tardías, renovación, reintentos y fuentes públicas de los canales.
+  respuestas tardías, renovación, reintentos rápidos y luego cada minuto,
+  cancelación de temporizadores y restricciones de los proveedores.
+- `broadcast_resolver_test.dart`: fuentes oficiales de SNT/C9N, JSON con escape
+  doble y rutas HLS publicadas; no se sustituyen rutas ante un 401/403.
 
 Las pruebas automatizadas usan un reproductor simulado. No certifican la señal
 actual de un proveedor, el comportamiento de un mando concreto o el rendimiento
@@ -116,6 +120,27 @@ de un TV Box físico. En los dispositivos reales comprobar toque, orientación,
 foco, Atrás, reproducción y legibilidad desde la distancia habitual.
 
 ## Mantenimiento
+
+### Fuentes y recuperación en 1.2.2
+
+SNT y C9N se resuelven desde sus páginas públicas, con soporte de los manifiestos
+HLS Content Steering que publican actualmente. GEN consulta directamente el
+iframe público del proveedor. Se conserva la resolución en el dispositivo de ABC,
+Unicanal y Trece; requieren una prueba real desde Paraguay porque este entorno
+recibió restricciones o respuestas 403 al comprobar su vídeo.
+
+Ante una falla transitoria, la app reintenta dos veces a los tres segundos y
+luego una vez por minuto mientras ese canal siga seleccionado. Cambiar de canal
+o cerrar cancela los temporizadores. Un error de región o autorización no activa
+ese ciclo. La renovación normal cada cinco minutos conserva la imagen anterior
+mientras prepara la nueva sesión. Si la fuente y los encabezados no cambiaron y
+la reproducción funciona, conserva el controlador existente.
+
+La tarea de mantenimiento remoto revisa esos seis canales cada hora. Sus cambios
+se reciben al iniciar, volver a la app o pulsar **Actualizar canales**. Esa tarea
+no puede garantizar una señal ininterrumpida ni reemplaza las sesiones que cada
+dispositivo obtiene del proveedor. Consultar `docs/renovacion-canales.md` para
+fuentes, comprobaciones y límites de esa revisión.
 
 ### Tamaño de imagen y Ñandutí
 

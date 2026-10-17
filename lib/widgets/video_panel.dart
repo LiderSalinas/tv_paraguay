@@ -159,6 +159,13 @@ class _VideoPanelState extends State<VideoPanel> {
     try {
       final stream = await _streamResolver.resolve(channel);
       if (!_isCurrentPlayback(channel, generation)) return;
+      final active = _videoController;
+      if (renewal && active != null && active.value.isInitialized &&
+          !active.value.hasError && active.dataSource == stream.uri.toString() &&
+          mapEquals(active.httpHeaders, stream.headers)) {
+        _scheduleRenewal(channel, generation);
+        return;
+      }
       final controller =
           candidate = VideoPlayerController.networkUrl(
             stream.uri,
@@ -225,14 +232,7 @@ class _VideoPanelState extends State<VideoPanel> {
           _recoveryAttempts = 0;
         }
       });
-      _renewalTimer?.cancel();
-      if (_streamResolver.needsRenewal(channel)) {
-        _renewalTimer = Timer(const Duration(minutes: 5), () {
-          if (_isCurrentPlayback(channel, generation)) {
-            _setupHls(channel, generation, renewal: true);
-          }
-        });
-      }
+      _scheduleRenewal(channel, generation);
     } catch (error) {
       if (!_isCurrentPlayback(channel, generation)) return;
 
@@ -272,15 +272,30 @@ class _VideoPanelState extends State<VideoPanel> {
     }
   }
 
+  void _scheduleRenewal(Channel channel, int generation) {
+    _renewalTimer?.cancel();
+    _renewalTimer = null;
+    if (!_streamResolver.needsRenewal(channel)) return;
+    _renewalTimer = Timer(const Duration(minutes: 5), () {
+      if (_isCurrentPlayback(channel, generation)) {
+        _setupHls(channel, generation, renewal: true);
+      }
+    });
+  }
+
   void _scheduleRecovery(Channel channel, int generation) {
     if (!_streamResolver.needsRenewal(channel) ||
         _recoveryTimer != null ||
-        _recoveryAttempts >= 2 ||
         !_isCurrentPlayback(channel, generation)) {
       return;
     }
+    // Retry transient outages promptly twice, then check less frequently until
+    // playback recovers or the viewer changes channel/closes the screen.
+    final delay = _recoveryAttempts < 2
+        ? const Duration(seconds: 3)
+        : const Duration(minutes: 1);
     _recoveryAttempts++;
-    _recoveryTimer = Timer(const Duration(seconds: 3), () {
+    _recoveryTimer = Timer(delay, () {
       _recoveryTimer = null;
       if (_isCurrentPlayback(channel, generation)) {
         _setupHls(channel, generation, renewal: _videoController != null);
