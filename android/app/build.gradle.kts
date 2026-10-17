@@ -22,6 +22,11 @@ android {
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.tv_paraguay"
+        val testApk = System.getenv("TV_PARAGUAY_TEST_APK") == "1"
+        if (testApk) {
+            applicationIdSuffix = ".prueba"
+        }
+        manifestPlaceholders["appLabel"] = if (testApk) "TV Paraguay Prueba" else "TV Paraguay"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

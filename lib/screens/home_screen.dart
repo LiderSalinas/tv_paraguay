@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/channel.dart';
+import '../models/playback_status.dart';
 import '../services/channel_service.dart';
+import '../theme/app_theme.dart';
 import '../widgets/channel_list.dart';
 import '../widgets/video_panel.dart';
 
@@ -16,760 +19,593 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
-  final ChannelService _channelService = ChannelService();
-  final FocusNode _tvFocusNode = FocusNode(debugLabel: 'tv_box_focus');
-  final ScrollController _scrollController = ScrollController();
+  final _channelService = ChannelService();
+  final _tvFocusNode = FocusNode(debugLabel: 'tv_remote');
+  final _listScroll = ScrollController();
+  final _panelScroll = ScrollController();
+  final _playback = ValueNotifier(PlaybackStatus.idle);
 
   List<Channel> _channels = [];
   Channel? _selectedChannel;
-
+  int _focusedIndex = 0;
   bool _isLoading = true;
   bool _isRefreshing = false;
-  bool _isChannelRequestInFlight = false;
+  bool _requestInFlight = false;
   bool _hasLoadedChannels = false;
   bool _isUsingRemoteChannels = false;
   bool _isFullScreen = false;
-  bool _showHint = true;
-
+  bool _panelOpen = false;
+  bool _controlsVisible = false;
+  bool _remoteMode = false;
+  bool _scrolling = false;
+  Future<void> _systemUiTask = Future<void>.value();
+  int _systemUiGeneration = 0;
+  int _pointersDown = 0;
+  bool _largeListText = false;
   String _errorMessage = '';
-  String _typedChannelNumber = '';
-
-  Timer? _hintTimer;
+  String _typedNumber = '';
+  Timer? _controlsTimer;
   Timer? _numberTimer;
 
-  int get _selectedIndex {
-    if (_selectedChannel == null) return -1;
-
-    return _channels.indexWhere(
-      (channel) => channel.id == _selectedChannel!.id,
-    );
-  }
+  int get _selectedIndex => _channels.indexWhere((c) => c.id == _selectedChannel?.id);
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadChannels(showFeedback: false);
-    _showTemporaryHint();
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _tvFocusNode.requestFocus();
-      }
-    });
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _hintTimer?.cancel();
+    _controlsTimer?.cancel();
     _numberTimer?.cancel();
     _tvFocusNode.dispose();
-    _scrollController.dispose();
+    _listScroll.dispose();
+    _panelScroll.dispose();
+    _playback.dispose();
+    _systemUiGeneration++;
+    unawaited(_systemUiTask.whenComplete(_restoreSystemUi));
+    super.dispose();
+  }
 
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    SystemChrome.setPreferredOrientations([
+  Future<void> _restoreSystemUi() async {
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    await SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
-
-    super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && !_isChannelRequestInFlight) {
+    if (state == AppLifecycleState.resumed && !_requestInFlight) {
       _loadChannels(showFeedback: false);
     }
+    if (state != AppLifecycleState.resumed) _controlsTimer?.cancel();
+    if (state == AppLifecycleState.resumed) _restartControlsTimer();
   }
 
   Future<void> _loadChannels({bool showFeedback = true}) async {
-    if (_isChannelRequestInFlight) return;
-    _isChannelRequestInFlight = true;
-
-    final previousChannelId = _selectedChannel?.id;
-
+    if (_requestInFlight) return;
+    _requestInFlight = true;
+    final previousId = _selectedChannel?.id;
     setState(() {
       _isLoading = !_hasLoadedChannels;
       _isRefreshing = _hasLoadedChannels;
       _errorMessage = '';
     });
-
     try {
       final result = await _channelService.getChannels();
-
       if (!mounted) return;
-
-      final channels = result.channels;
-      final previousIndex = previousChannelId == null
-          ? -1
-          : channels.indexWhere((channel) => channel.id == previousChannelId);
-
+      final oldIndex = result.channels.indexWhere((c) => c.id == previousId);
       setState(() {
-        _channels = channels;
-        _selectedChannel = channels.isEmpty
+        _channels = result.channels;
+        _selectedChannel = _channels.isEmpty
             ? null
-            : previousIndex >= 0
-                ? channels[previousIndex]
-                : channels.first;
+            : _channels[oldIndex >= 0 ? oldIndex : 0];
+        _focusedIndex = math.max(0, _selectedIndex);
         _isLoading = false;
         _isRefreshing = false;
         _hasLoadedChannels = true;
         _isUsingRemoteChannels = result.isRemote;
       });
-
       if (showFeedback) {
-        _showChannelLoadFeedback(result);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(result.isRemote
+              ? 'Canales actualizados'
+              : 'Usando la lista de respaldo'),
+        ));
       }
-
-      _requestTvFocus();
-      _showTemporaryHint();
     } catch (_) {
       if (!mounted) return;
-
       setState(() {
         _isLoading = false;
         _isRefreshing = false;
         _errorMessage = 'No se pudo cargar la lista de canales.';
       });
-
-      _requestTvFocus();
     } finally {
-      _isChannelRequestInFlight = false;
+      _requestInFlight = false;
     }
   }
 
-  void _showChannelLoadFeedback(ChannelLoadResult result) {
-    final isRemote = result.isRemote;
-    final message = isRemote
-        ? 'Grilla actualizada desde Internet: ${result.channels.length} canales.'
-        : 'No se pudo conectar a la grilla remota. Se usa el respaldo integrado.';
-
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(
-            message,
-            style: const TextStyle(fontWeight: FontWeight.w700),
-          ),
-          backgroundColor: isRemote
-              ? const Color.fromRGBO(24, 116, 67, 1)
-              : const Color.fromRGBO(173, 91, 12, 1),
-          duration: const Duration(seconds: 4),
-        ),
-      );
-  }
-
-  void _requestTvFocus() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && !_tvFocusNode.hasFocus) {
-        _tvFocusNode.requestFocus();
-      }
-    });
-  }
-
-  void _showTemporaryHint() {
-    _hintTimer?.cancel();
-
-    if (mounted) {
-      setState(() {
-        _showHint = true;
-      });
-    }
-
-    _hintTimer = Timer(const Duration(seconds: 4), () {
+  void _restartControlsTimer() {
+    _controlsTimer?.cancel();
+    if ((!_controlsVisible && !_panelOpen) || _scrolling || _pointersDown > 0) return;
+    _controlsTimer = Timer(const Duration(seconds: 4), () {
       if (!mounted) return;
-
       setState(() {
-        _showHint = false;
+        _controlsVisible = false;
+        _panelOpen = false;
       });
     });
+  }
+
+  void _showControls() {
+    setState(() => _controlsVisible = true);
+    _restartControlsTimer();
+  }
+
+  void _openPanel() {
+    if (_channels.isEmpty) {
+      _showControls();
+      return;
+    }
+    setState(() {
+      _panelOpen = true;
+      _controlsVisible = true;
+      _focusedIndex = math.max(0, _selectedIndex);
+    });
+    _scrollToFocus();
+    _restartControlsTimer();
+  }
+
+  void _closePanel({bool hideControls = false}) {
+    setState(() {
+      _panelOpen = false;
+      _scrolling = false;
+      _controlsVisible = !hideControls;
+    });
+    _restartControlsTimer();
+  }
+
+  void _onVideoTap() {
+    if (_isFullScreen) {
+      if (_panelOpen) {
+        _closePanel();
+      } else {
+        _openPanel();
+      }
+    } else {
+      _showControls();
+    }
   }
 
   void _selectChannel(Channel channel) {
+    _numberTimer?.cancel();
+    if (_selectedChannel?.id != channel.id) _playback.value = PlaybackStatus.loading;
     setState(() {
       _selectedChannel = channel;
-      _typedChannelNumber = '';
+      _focusedIndex = math.max(0, _selectedIndex);
+      _typedNumber = '';
+      _panelOpen = false;
+      _scrolling = false;
+      _controlsVisible = true;
     });
-
-    final index = _channels.indexWhere((item) => item.id == channel.id);
-    if (index >= 0) {
-      _scrollToSelected(index);
-    }
-
-    _requestTvFocus();
-    _showTemporaryHint();
+    _tvFocusNode.requestFocus();
+    _scrollToFocus();
+    _restartControlsTimer();
   }
 
-  void _selectChannelByIndex(int index) {
+  void _stepChannel(int delta) {
     if (_channels.isEmpty) return;
+    final index = (math.max(0, _selectedIndex) + delta) % _channels.length;
+    _selectChannel(_channels[index]);
+  }
 
-    final safeIndex = index.clamp(0, _channels.length - 1);
-    final channel = _channels[safeIndex];
-
+  void _moveFocus(int delta) {
+    if (_channels.isEmpty) return;
+    if (_isFullScreen && !_panelOpen) _openPanel();
     setState(() {
-      _selectedChannel = channel;
-      _typedChannelNumber = '';
+      _focusedIndex = (_focusedIndex + delta).clamp(0, _channels.length - 1);
     });
-
-    _scrollToSelected(safeIndex);
-    _requestTvFocus();
-    _showTemporaryHint();
+    _scrollToFocus();
+    _restartControlsTimer();
   }
 
-  void _selectChannelByNumber(int number) {
-    if (_channels.isEmpty) return;
-
-    final index = _channels.indexWhere((channel) => channel.id == number);
-
-    if (index >= 0) {
-      _selectChannelByIndex(index);
-      return;
-    }
-
-    setState(() {
-      _typedChannelNumber = '';
-    });
-
-    _showTemporaryHint();
-  }
-
-  void _nextChannel() {
-    if (_channels.isEmpty) return;
-
-    final currentIndex = _selectedIndex;
-    final nextIndex = currentIndex < 0
-        ? 0
-        : (currentIndex + 1) % _channels.length;
-
-    _selectChannelByIndex(nextIndex);
-  }
-
-  void _previousChannel() {
-    if (_channels.isEmpty) return;
-
-    final currentIndex = _selectedIndex;
-    final previousIndex = currentIndex <= 0
-        ? _channels.length - 1
-        : currentIndex - 1;
-
-    _selectChannelByIndex(previousIndex);
-  }
-
-  void _scrollToSelected(int index) {
-    if (!_scrollController.hasClients) return;
-
-    const itemHeight = 86.0;
-    final targetOffset = (index * itemHeight) - 120;
-
-    final min = _scrollController.position.minScrollExtent;
-    final max = _scrollController.position.maxScrollExtent;
-
-    _scrollController.animateTo(
-      targetOffset.clamp(min, max),
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOut,
-    );
-  }
-
-  Future<void> _toggleFullScreen() async {
-    final nextValue = !_isFullScreen;
-
-    setState(() {
-      _isFullScreen = nextValue;
-      _typedChannelNumber = '';
-    });
-
-    if (nextValue) {
-      await SystemChrome.setEnabledSystemUIMode(
-        SystemUiMode.immersiveSticky,
+  void _scrollToFocus() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final controller = _panelOpen ? _panelScroll : _listScroll;
+      if (!controller.hasClients) return;
+      final extent = ChannelList.rowExtent(context, largeText: _largeListText);
+      final top = _focusedIndex * extent;
+      final bottom = top + extent;
+      final position = controller.position;
+      var target = position.pixels;
+      if (top < target) target = top;
+      if (bottom > target + position.viewportDimension) {
+        target = bottom - position.viewportDimension;
+      }
+      controller.animateTo(
+        target.clamp(position.minScrollExtent, position.maxScrollExtent),
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
       );
+    });
+  }
 
-      await SystemChrome.setPreferredOrientations([
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
+  Future<void> _toggleFullScreen() {
+    final enter = !_isFullScreen;
+    final generation = ++_systemUiGeneration;
+    setState(() {
+      _isFullScreen = enter;
+      _panelOpen = false;
+      _scrolling = false;
+      _typedNumber = '';
+      _controlsVisible = enter;
+    });
+    _numberTimer?.cancel();
+    _tvFocusNode.requestFocus();
+    _restartControlsTimer();
+    _scrollToFocus();
+
+    // Update the interface immediately; serialize Android changes and discard
+    // stale requests so a quick Back/exit during rotation is never ignored.
+    _systemUiTask = _systemUiTask.then((_) async {
+      if (!mounted || generation != _systemUiGeneration) return;
+      await SystemChrome.setEnabledSystemUIMode(
+        enter ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
+      );
+      if (!mounted || generation != _systemUiGeneration) return;
+      await SystemChrome.setPreferredOrientations(enter
+          ? [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]
+          : [DeviceOrientation.portraitUp,
+              DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
+    }).catchError((Object error) {
+      debugPrint('No se pudo ajustar la orientación: $error');
+    });
+    return _systemUiTask;
+  }
+
+  bool _handleBack() {
+    if (_typedNumber.isNotEmpty) {
+      _numberTimer?.cancel();
+      setState(() => _typedNumber = '');
+      return true;
+    }
+    if (_panelOpen) {
+      _closePanel(hideControls: true);
+      return true;
+    }
+    if (_controlsVisible) {
+      _controlsTimer?.cancel();
+      setState(() => _controlsVisible = false);
+      return true;
+    }
+    if (_isFullScreen) {
+      _toggleFullScreen();
+      return true;
+    }
+    return false;
+  }
+
+  void _confirmNumber() {
+    final number = int.tryParse(_typedNumber);
+    _numberTimer?.cancel();
+    final index = _channels.indexWhere((c) => c.id == number);
+    if (index >= 0) {
+      _selectChannel(_channels[index]);
     } else {
-      await SystemChrome.setEnabledSystemUIMode(
-        SystemUiMode.edgeToEdge,
-      );
-
-      await SystemChrome.setPreferredOrientations([
-        DeviceOrientation.portraitUp,
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
+      setState(() => _typedNumber = '');
     }
-
-    _requestTvFocus();
-    _showTemporaryHint();
   }
 
-  Future<void> _enterFullScreen() async {
-    if (_isFullScreen) return;
-    await _toggleFullScreen();
-  }
-
-  Future<void> _exitFullScreen() async {
-    if (!_isFullScreen) return;
-    await _toggleFullScreen();
-  }
-
-  int? _digitFromKey(LogicalKeyboardKey key) {
-    final label = key.keyLabel;
-
-    if (label.length == 1) {
-      final digit = int.tryParse(label);
-      if (digit != null) return digit;
-    }
-
-    final keyId = key.keyId;
-
-    const digit0 = 0x0000000000000030;
-    const digit9 = 0x0000000000000039;
-    const numpad0 = 0x0000000000200030;
-    const numpad9 = 0x0000000000200039;
-
-    if (keyId >= digit0 && keyId <= digit9) {
-      return keyId - digit0;
-    }
-
-    if (keyId >= numpad0 && keyId <= numpad9) {
-      return keyId - numpad0;
-    }
-
-    return null;
-  }
-
-  void _handleDigit(int digit) {
-    _numberTimer?.cancel();
-
-    final nextValue = (_typedChannelNumber + digit.toString()).trim();
-
-    setState(() {
-      _typedChannelNumber = nextValue.length > 2
-          ? digit.toString()
-          : nextValue;
-    });
-
-    _showTemporaryHint();
-
-    _numberTimer = Timer(const Duration(milliseconds: 900), () {
-      final number = int.tryParse(_typedChannelNumber);
-      if (number == null) return;
-
-      _selectChannelByNumber(number);
-    });
-  }
-
-  void _confirmTypedNumber() {
-    if (_typedChannelNumber.isEmpty) return;
-
-    _numberTimer?.cancel();
-
-    final number = int.tryParse(_typedChannelNumber);
-    if (number == null) return;
-
-    _selectChannelByNumber(number);
-  }
-
-  KeyEventResult _handleTvRemoteKey(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent) {
-      return KeyEventResult.ignored;
-    }
-
+  KeyEventResult _handleKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
     final key = event.logicalKey;
-    final digit = _digitFromKey(key);
-
-    if (digit != null) {
-      _handleDigit(digit);
+    final digit = int.tryParse(key.keyLabel);
+    if (!_remoteMode) setState(() => _remoteMode = true);
+    _restartControlsTimer();
+    if (digit != null && key.keyLabel.length == 1) {
+      _numberTimer?.cancel();
+      setState(() {
+        _typedNumber = _typedNumber.length >= 2
+            ? '$digit'
+            : '$_typedNumber$digit';
+      });
+      _numberTimer = Timer(const Duration(milliseconds: 900), _confirmNumber);
       return KeyEventResult.handled;
     }
-
-    if (key == LogicalKeyboardKey.arrowDown ||
-        key == LogicalKeyboardKey.channelDown ||
-        key == LogicalKeyboardKey.mediaTrackNext) {
-      _nextChannel();
-      return KeyEventResult.handled;
-    }
-
-    if (key == LogicalKeyboardKey.arrowUp ||
-        key == LogicalKeyboardKey.channelUp ||
-        key == LogicalKeyboardKey.mediaTrackPrevious) {
-      _previousChannel();
-      return KeyEventResult.handled;
-    }
-
-    if (key == LogicalKeyboardKey.enter ||
-        key == LogicalKeyboardKey.select ||
-        key == LogicalKeyboardKey.numpadEnter ||
-        key == LogicalKeyboardKey.space) {
-      if (_typedChannelNumber.isNotEmpty) {
-        _confirmTypedNumber();
-      } else {
-        _toggleFullScreen();
+    if (key == LogicalKeyboardKey.channelUp || key == LogicalKeyboardKey.mediaTrackNext) {
+      _stepChannel(1);
+    } else if (key == LogicalKeyboardKey.channelDown || key == LogicalKeyboardKey.mediaTrackPrevious) {
+      _stepChannel(-1);
+    } else if (key == LogicalKeyboardKey.arrowDown) {
+      _moveFocus(1);
+    } else if (key == LogicalKeyboardKey.arrowUp) {
+      _moveFocus(-1);
+    } else if (key == LogicalKeyboardKey.enter || key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.numpadEnter || key == LogicalKeyboardKey.space) {
+      if (event is KeyRepeatEvent) return KeyEventResult.handled;
+      if (_typedNumber.isNotEmpty) {
+        _confirmNumber();
+      } else if (_isFullScreen && !_panelOpen) {
+        _openPanel();
+      } else if (_channels.isNotEmpty) {
+        _selectChannel(_channels[_focusedIndex]);
       }
-
-      return KeyEventResult.handled;
-    }
-
-    if (key == LogicalKeyboardKey.arrowRight) {
-      _enterFullScreen();
-      return KeyEventResult.handled;
-    }
-
-    if (key == LogicalKeyboardKey.arrowLeft) {
-      if (_isFullScreen) {
-        _exitFullScreen();
-        return KeyEventResult.handled;
-      }
-
-      _showTemporaryHint();
-      return KeyEventResult.handled;
-    }
-
-    if (key == LogicalKeyboardKey.escape ||
-        key == LogicalKeyboardKey.goBack ||
+    } else if (key == LogicalKeyboardKey.arrowRight) {
+      if (!_isFullScreen) _toggleFullScreen();
+    } else if (key == LogicalKeyboardKey.arrowLeft && _panelOpen) {
+      _closePanel(hideControls: true);
+    } else if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack ||
         key == LogicalKeyboardKey.browserBack) {
-      if (_typedChannelNumber.isNotEmpty) {
-        setState(() {
-          _typedChannelNumber = '';
-        });
-        return KeyEventResult.handled;
-      }
-
-      if (_isFullScreen) {
-        _exitFullScreen();
-        return KeyEventResult.handled;
-      }
-
+      return _handleBack() ? KeyEventResult.handled : KeyEventResult.ignored;
+    } else {
       return KeyEventResult.ignored;
     }
+    return KeyEventResult.handled;
+  }
 
-    return KeyEventResult.ignored;
+  bool _onScroll(ScrollNotification notification) {
+    if (!_panelOpen) return false;
+    if (notification is ScrollStartNotification) {
+      _scrolling = true;
+      _controlsTimer?.cancel();
+    } else if (notification is ScrollEndNotification) {
+      _scrolling = false;
+      _restartControlsTimer();
+    }
+    return false;
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Focus(
-      focusNode: _tvFocusNode,
-      autofocus: true,
-      onKeyEvent: _handleTvRemoteKey,
-      child: GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onTap: () {
-          _requestTvFocus();
-          _showTemporaryHint();
+  Widget build(BuildContext context) => PopScope<Object?>(
+        canPop: !_isFullScreen && !_panelOpen && !_controlsVisible && _typedNumber.isEmpty,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) _handleBack();
         },
-        child: Scaffold(
-          backgroundColor: Colors.black,
-          body: SafeArea(
-            child: _buildBody(),
+        child: Focus(
+          focusNode: _tvFocusNode,
+          autofocus: true,
+          onKeyEvent: _handleKey,
+          child: Listener(
+            onPointerDown: (_) {
+              _pointersDown++;
+              _controlsTimer?.cancel();
+              if (_remoteMode) setState(() => _remoteMode = false);
+            },
+            onPointerUp: (_) {
+              _pointersDown = math.max(0, _pointersDown - 1);
+              _restartControlsTimer();
+            },
+            onPointerCancel: (_) {
+              _pointersDown = math.max(0, _pointersDown - 1);
+              _restartControlsTimer();
+            },
+            child: Scaffold(
+              body: SafeArea(child: LayoutBuilder(builder: _buildLayout)),
+            ),
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildBody() {
-    if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(
-          color: Colors.redAccent,
-        ),
       );
-    }
 
-    if (_errorMessage.isNotEmpty) {
-      return _buildError();
-    }
+  Widget _buildLayout(BuildContext context, BoxConstraints constraints) {
+    final width = constraints.maxWidth;
+    final height = constraints.maxHeight;
+    final wide = width >= 760 || (width >= 600 && width > height);
+    _largeListText = width >= 1000;
+    final scale = MediaQuery.textScalerOf(context).scale(26) / 26;
+    final headerHeight = math.max(82.0, 26 * scale * 2 * 1.2 + 24);
+    final sidebarWidth = width >= 1200 ? 340.0 : 300.0;
+    final mobileVideoHeight = math.min((width - 32) * 9 / 16, height * 0.36);
+    final videoRect = _isFullScreen
+        ? Rect.fromLTWH(0, 0, width, height)
+        : wide
+            ? Rect.fromLTWH(sidebarWidth + 32, headerHeight + 8,
+                math.max(0, width - sidebarWidth - 48),
+                math.max(0, height - headerHeight - 24))
+            : Rect.fromLTWH(16, headerHeight + 8, width - 32, mobileVideoHeight);
 
-    if (_isFullScreen) {
-      return Stack(
-        children: [
-          Positioned.fill(
+    // The player stays at the same keyed location in this Stack in every layout.
+    return Stack(
+      children: [
+        Positioned.fromRect(
+          key: const ValueKey('persistent-player-position'),
+          rect: videoRect,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(_isFullScreen ? 0 : 16),
             child: VideoPanel(
+              key: const ValueKey('persistent-player'),
               channel: _selectedChannel,
-              isFullScreen: true,
+              isFullScreen: _isFullScreen,
               onToggleFullScreen: _toggleFullScreen,
+              onVideoTap: _onVideoTap,
+              controlsVisible: _controlsVisible && !_panelOpen,
+              onPlaybackStatusChanged: (status) {
+                if (mounted) _playback.value = status;
+              },
             ),
           ),
-          if (_showHint) _buildTvBoxHint(),
-          if (_typedChannelNumber.isNotEmpty) _buildTypedNumberOverlay(),
+        ),
+        if (!_isFullScreen) ...[
+          Positioned(left: 0, right: 0, top: 0, height: headerHeight, child: _buildHeader()),
+          Positioned(
+            left: 16,
+            right: wide ? width - sidebarWidth - 16 : 16,
+            top: wide ? headerHeight + 8 : headerHeight + mobileVideoHeight + 28,
+            bottom: 8,
+            child: _buildMainList(),
+          ),
+        ],
+        if (_isFullScreen && _controlsVisible && !_panelOpen)
+          Positioned(left: 12, right: 12, bottom: 12, child: _buildControls()),
+        if (_isFullScreen && _panelOpen)
+          Positioned(
+            key: const ValueKey('fullscreen-channel-panel'),
+            left: 12,
+            top: 12,
+            bottom: 12,
+            width: math.min(width - 24, math.max(260, math.min(340, width * 0.38))),
+            child: _buildChannelPanel(),
+          ),
+        if (_typedNumber.isNotEmpty)
+          Positioned(
+            right: 20,
+            top: 20,
+            child: DecoratedBox(
+              decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(14)),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(_typedNumber, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w700)),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildHeader() => Column(
+        children: [
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Row(
+                children: [
+                  Image.asset('assets/branding/tv_paraguay_logo.jpg',
+                      width: 44, height: 44, excludeFromSemantics: true),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text.rich(
+                      const TextSpan(children: [
+                        TextSpan(text: 'TV ', style: TextStyle(color: AppColors.blue)),
+                        TextSpan(text: 'Paraguay'),
+                      ]),
+                      semanticsLabel: 'TV Paraguay',
+                      maxLines: 2,
+                      style: const TextStyle(fontSize: 26, height: 1.2, fontWeight: FontWeight.w700, letterSpacing: -0.6),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  if (_isRefreshing)
+                    const SizedBox(width: 48, height: 48, child: Center(
+                      child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)),
+                    ))
+                  else
+                    IconButton(
+                      key: const ValueKey('refresh-channels'),
+                      tooltip: 'Actualizar canales',
+                      onPressed: () => _loadChannels(),
+                      icon: const Icon(Icons.refresh_rounded, color: AppColors.secondary),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          SizedBox(height: 2, child: Row(children: [
+            Expanded(flex: 3, child: Container(color: AppColors.blue)),
+            Expanded(child: Container(color: AppColors.red)),
+          ])),
         ],
       );
+
+  Widget _buildMainList() {
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
+    if (_errorMessage.isNotEmpty && _channels.isEmpty) {
+      return SingleChildScrollView(child: Column(children: [
+        Text(_errorMessage, style: const TextStyle(fontSize: 18)),
+        const SizedBox(height: 12),
+        FilledButton.icon(onPressed: _loadChannels, icon: const Icon(Icons.refresh), label: const Text('Reintentar')),
+      ]));
     }
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= 760;
-
-        return Stack(
-          children: [
-            Column(
-              children: [
-                _buildHeader(),
-                Expanded(
-                  child: isWide
-                      ? _buildWideLayout(constraints)
-                      : _buildMobileLayout(),
-                ),
-              ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10, top: 2),
+          child: Row(children: [
+            const Expanded(child: Text('Canales', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700))),
+            Tooltip(
+              message: _isUsingRemoteChannels ? 'Lista actualizada' : 'Lista de respaldo',
+              child: Text('${_channels.length}', style: const TextStyle(fontSize: 14, color: AppColors.secondary)),
             ),
-            if (_showHint) _buildTvBoxHint(),
-            if (_typedChannelNumber.isNotEmpty) _buildTypedNumberOverlay(),
-          ],
-        );
-      },
+          ]),
+        ),
+        Expanded(child: _buildList(_listScroll)),
+      ],
     );
   }
 
-  Widget _buildHeader() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
-      child: Row(
-        children: [
-          const Expanded(
-            child: Text(
-              'TV Paraguay',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 28,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.2,
-              ),
-            ),
+  Widget _buildList(ScrollController controller) => ValueListenableBuilder<PlaybackStatus>(
+        valueListenable: _playback,
+        builder: (_, status, __) => NotificationListener<ScrollNotification>(
+          onNotification: _onScroll,
+          child: ChannelList(
+            channels: _channels,
+            selectedChannel: _selectedChannel,
+            focusedChannelId: _remoteMode && _channels.isNotEmpty ? _channels[_focusedIndex].id : null,
+            playbackStatus: status,
+            scrollController: controller,
+            largeText: _largeListText,
+            onChannelSelected: _selectChannel,
           ),
-          _buildChannelSourceBadge(),
-          const SizedBox(width: 6),
-          if (_isRefreshing)
-            const SizedBox(
-              width: 48,
-              height: 48,
-              child: Padding(
-                padding: EdgeInsets.all(12),
-                child: CircularProgressIndicator(
-                  color: Colors.white,
-                  strokeWidth: 3,
+        ),
+      );
+
+  Widget _buildChannelPanel() => Material(
+        color: AppColors.background.withValues(alpha: 0.97),
+        borderRadius: BorderRadius.circular(16),
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          child: Column(
+            children: [
+              Row(children: [
+                const Expanded(child: Text('Canales', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700))),
+                IconButton(
+                  key: const ValueKey('close-channel-panel'),
+                  tooltip: 'Cerrar canales',
+                  onPressed: () => _closePanel(hideControls: true),
+                  icon: const Icon(Icons.close_rounded),
                 ),
-              ),
-            )
-          else
-            IconButton(
-              tooltip: 'Actualizar canales',
-              onPressed: () => _loadChannels(),
-              icon: const Icon(
-                Icons.refresh,
-                color: Colors.white,
-                size: 31,
-              ),
-            ),
-        ],
-      ),
-    );
-  }
+              ]),
+              const SizedBox(height: 8),
+              Expanded(child: _buildList(_panelScroll)),
+              const SizedBox(height: 4),
+              Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+                _controlButton('previous-channel', 'Canal anterior', Icons.skip_previous_rounded, () => _stepChannel(-1)),
+                _controlButton('next-channel', 'Canal siguiente', Icons.skip_next_rounded, () => _stepChannel(1)),
+                _controlButton('exit-fullscreen', 'Salir de pantalla completa', Icons.fullscreen_exit_rounded, _toggleFullScreen),
+              ]),
+            ],
+          ),
+        ),
+      );
 
-  Widget _buildChannelSourceBadge() {
-    final isRemote = _isUsingRemoteChannels;
-
-    return Tooltip(
-      message: isRemote
-          ? 'Lista cargada desde Internet'
-          : 'Se está usando la lista integrada',
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-        decoration: BoxDecoration(
-          color: isRemote
-              ? const Color.fromRGBO(24, 116, 67, 0.88)
-              : const Color.fromRGBO(173, 91, 12, 0.88),
+  Widget _buildControls() => Align(
+        alignment: Alignment.bottomRight,
+        child: Material(
+          color: AppColors.background.withValues(alpha: 0.92),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: const Color.fromRGBO(255, 255, 255, 0.14),
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: Wrap(spacing: 4, children: [
+              _controlButton('open-channel-panel', 'Canales', Icons.list_rounded, _openPanel),
+              _controlButton('previous-channel', 'Canal anterior', Icons.skip_previous_rounded, () => _stepChannel(-1)),
+              _controlButton('next-channel', 'Canal siguiente', Icons.skip_next_rounded, () => _stepChannel(1)),
+              _controlButton('exit-fullscreen', 'Salir de pantalla completa', Icons.fullscreen_exit_rounded, _toggleFullScreen),
+            ]),
           ),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              isRemote ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
-              color: Colors.white,
-              size: 17,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              isRemote ? 'EN LÍNEA' : 'RESPALDO',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 11,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 0.3,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+      );
 
-  Widget _buildWideLayout(BoxConstraints constraints) {
-    final sidebarWidth = constraints.maxWidth >= 1200 ? 320.0 : 300.0;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 0, 14, 72),
-      child: Row(
-        children: [
-          SizedBox(
-            width: sidebarWidth,
-            child: ChannelList(
-              channels: _channels,
-              selectedChannel: _selectedChannel,
-              scrollController: _scrollController,
-              onChannelSelected: _selectChannel,
-              compact: true,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(22),
-              child: VideoPanel(
-                channel: _selectedChannel,
-                isFullScreen: false,
-                onToggleFullScreen: _toggleFullScreen,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMobileLayout() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 0, 14, 82),
-      child: Column(
-        children: [
-          AspectRatio(
-            aspectRatio: 16 / 9,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(24),
-              child: VideoPanel(
-                channel: _selectedChannel,
-                isFullScreen: false,
-                onToggleFullScreen: _toggleFullScreen,
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: ChannelList(
-              channels: _channels,
-              selectedChannel: _selectedChannel,
-              scrollController: _scrollController,
-              onChannelSelected: _selectChannel,
-              compact: false,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTvBoxHint() {
-    return Positioned(
-      left: 24,
-      right: 24,
-      bottom: 18,
-      child: Center(
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 18,
-            vertical: 12,
-          ),
-          decoration: BoxDecoration(
-            color: const Color.fromRGBO(20, 20, 20, 0.88),
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(
-              color: const Color.fromRGBO(255, 255, 255, 0.10),
-            ),
-          ),
-          child: const Text(
-            '↑↓ cambiar canal  ·  OK pantalla completa  ·  0-9 canal',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white70,
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTypedNumberOverlay() {
-    return Positioned(
-      left: 24,
-      top: 96,
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 22,
-          vertical: 16,
-        ),
-        decoration: BoxDecoration(
-          color: const Color.fromRGBO(0, 0, 0, 0.82),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: Colors.redAccent,
-            width: 1.5,
-          ),
-        ),
-        child: Text(
-          _typedChannelNumber.padLeft(2, '0'),
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 42,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildError() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.wifi_off,
-              color: Colors.redAccent,
-              size: 64,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              _errorMessage,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 22,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton.icon(
-              onPressed: _loadChannels,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Reintentar'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget _controlButton(String key, String label, IconData icon, VoidCallback action) => IconButton(
+        key: ValueKey(key),
+        tooltip: label,
+        onPressed: action,
+        icon: Icon(icon, size: 28),
+      );
 }

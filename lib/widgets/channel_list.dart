@@ -1,12 +1,19 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../models/channel.dart';
+import '../models/playback_status.dart';
+import '../theme/app_theme.dart';
 
 class ChannelList extends StatelessWidget {
   final List<Channel> channels;
   final Channel? selectedChannel;
   final ValueChanged<Channel> onChannelSelected;
   final ScrollController? scrollController;
+  final int? focusedChannelId;
+  final PlaybackStatus playbackStatus;
+  final bool largeText;
   final bool compact;
 
   const ChannelList({
@@ -15,253 +22,170 @@ class ChannelList extends StatelessWidget {
     required this.selectedChannel,
     required this.onChannelSelected,
     this.scrollController,
+    this.focusedChannelId,
+    this.playbackStatus = PlaybackStatus.idle,
+    this.largeText = false,
     this.compact = false,
   });
+
+  static double rowExtent(BuildContext context, {bool largeText = false}) {
+    final scaler = MediaQuery.textScalerOf(context);
+    final nameHeight = scaler.scale(largeText ? 22 : 18.5) * 2 * 1.2;
+    final statusHeight = scaler.scale(12) * 1.25;
+    return math.max(76, nameHeight + statusHeight + 22) + 8;
+  }
 
   @override
   Widget build(BuildContext context) {
     if (channels.isEmpty) {
-      return const Center(
-        child: Text(
-          'No hay canales disponibles',
-          style: TextStyle(
-            color: Colors.white70,
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      );
+      return const Center(child: Text('No hay canales disponibles'));
     }
-
-    return ListView.separated(
+    final extent = rowExtent(context, largeText: largeText);
+    return ListView.builder(
+      key: const ValueKey('channel-list'),
       controller: scrollController,
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 8),
+      itemExtent: extent,
       itemCount: channels.length,
-      separatorBuilder: (_, __) => SizedBox(height: compact ? 8 : 12),
       itemBuilder: (context, index) {
         final channel = channels[index];
-        final isSelected = selectedChannel?.id == channel.id;
-
-        return _ChannelTile(
-          channel: channel,
-          isSelected: isSelected,
-          compact: compact,
-          onTap: () => onChannelSelected(channel),
+        final selected = selectedChannel?.id == channel.id;
+        final focused = focusedChannelId == channel.id;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Semantics(
+            button: true,
+            selected: selected,
+            focused: focused,
+            label: 'Canal ${channel.id}, ${channel.name}'
+                '${selected ? ', ${playbackStatus.label}' : ''}',
+            child: Material(
+              color: selected ? AppColors.selected : AppColors.surface,
+              borderRadius: BorderRadius.circular(14),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                key: ValueKey('channel-${channel.id}'),
+                canRequestFocus: false,
+                onTap: () => onChannelSelected(channel),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: focused
+                          ? AppColors.focus
+                          : selected
+                              ? AppColors.blue.withValues(alpha: 0.65)
+                              : Colors.white.withValues(alpha: 0.07),
+                      width: focused ? 3 : 1,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 4,
+                        color: selected ? AppColors.red : Colors.transparent,
+                      ),
+                      const SizedBox(width: 10),
+                      SizedBox(
+                        width: math.max(largeText ? 36 : 30,
+                            MediaQuery.textScalerOf(context).scale(largeText ? 22 : 19) * 1.4),
+                        child: Text(
+                          channel.id.toString().padLeft(2, '0'),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: largeText ? 22 : 19,
+                            fontWeight: FontWeight.w700,
+                            color: selected ? AppColors.text : AppColors.secondary,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      _ChannelLogo(channel: channel, size: largeText ? 48 : 44),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              channel.name,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: AppColors.text,
+                                fontSize: largeText ? 22 : 18.5,
+                                fontWeight: FontWeight.w600,
+                                height: 1.2,
+                              ),
+                            ),
+                            if (selected) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                playbackStatus.label,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: AppColors.secondary,
+                                  fontSize: 12,
+                                  height: 1.25,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
         );
       },
     );
   }
 }
 
-class _ChannelTile extends StatelessWidget {
-  final Channel channel;
-  final bool isSelected;
-  final bool compact;
-  final VoidCallback onTap;
-
-  const _ChannelTile({
-    required this.channel,
-    required this.isSelected,
-    required this.compact,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final channelNumber = channel.id.toString().padLeft(2, '0');
-
-    final tileHeight = compact ? 78.0 : 92.0;
-    final numberWidth = compact ? 66.0 : 96.0;
-    final logoSize = compact ? 50.0 : 68.0;
-    final nameFontSize = compact ? 20.0 : 25.0;
-    final playSize = compact ? 38.0 : 46.0;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOut,
-          constraints: BoxConstraints(minHeight: tileHeight),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            color: isSelected
-                ? const Color.fromRGBO(95, 12, 16, 0.92)
-                : const Color.fromRGBO(22, 24, 28, 0.96),
-            border: Border.all(
-              color: isSelected
-                  ? Colors.redAccent
-                  : const Color.fromRGBO(255, 255, 255, 0.08),
-              width: isSelected ? 2 : 1,
-            ),
-            boxShadow: isSelected
-                ? const [
-                    BoxShadow(
-                      color: Color.fromRGBO(255, 50, 60, 0.26),
-                      blurRadius: 14,
-                      offset: Offset(0, 3),
-                    ),
-                  ]
-                : const [],
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: numberWidth,
-                height: tileHeight,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? const Color.fromRGBO(190, 20, 28, 0.82)
-                      : const Color.fromRGBO(10, 11, 13, 0.80),
-                  borderRadius: const BorderRadius.horizontal(
-                    left: Radius.circular(18),
-                  ),
-                  border: const Border(
-                    right: BorderSide(
-                      color: Color.fromRGBO(255, 255, 255, 0.07),
-                    ),
-                  ),
-                ),
-                child: Text(
-                  channelNumber,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: compact ? 25 : 34,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.3,
-                  ),
-                ),
-              ),
-              SizedBox(width: compact ? 12 : 18),
-              _Logo(
-                channel: channel,
-                size: logoSize,
-                compact: compact,
-              ),
-              SizedBox(width: compact ? 14 : 22),
-              Expanded(
-                child: Text(
-                  channel.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: nameFontSize,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.1,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              _PlayIndicator(
-                isSelected: isSelected,
-                size: playSize,
-              ),
-              SizedBox(width: compact ? 10 : 18),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _Logo extends StatelessWidget {
+class _ChannelLogo extends StatelessWidget {
   final Channel channel;
   final double size;
-  final bool compact;
+  const _ChannelLogo({required this.channel, required this.size});
 
-  const _Logo({
-    required this.channel,
-    required this.size,
-    required this.compact,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final logoUrl = channel.logoUrl.trim();
-
-    return Container(
-      width: size,
-      height: size,
-      padding: EdgeInsets.all(compact ? 5 : 6),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(compact ? 11 : 14),
-      ),
-      child: logoUrl.isEmpty
-          ? _FallbackLogo(channel: channel, compact: compact)
-          : Image.network(
-              logoUrl,
-              fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) => _FallbackLogo(
-                channel: channel,
-                compact: compact,
-              ),
-            ),
-    );
-  }
-}
-
-class _FallbackLogo extends StatelessWidget {
-  final Channel channel;
-  final bool compact;
-
-  const _FallbackLogo({
-    required this.channel,
-    required this.compact,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final text = channel.shortName.trim().isNotEmpty
-        ? channel.shortName.trim()
-        : channel.name.trim();
-
+  Widget get fallback {
+    final name = channel.shortName.isEmpty ? channel.name : channel.shortName;
+    final letters = name.isEmpty ? 'TV' : name.substring(0, math.min(4, name.length));
     return Center(
       child: Text(
-        text.length > 4
-            ? text.substring(0, 4).toUpperCase()
-            : text.toUpperCase(),
+        letters,
         textAlign: TextAlign.center,
-        style: TextStyle(
-          color: Colors.black87,
-          fontSize: compact ? 10 : 14,
-          fontWeight: FontWeight.w900,
+        textScaler: TextScaler.noScaling,
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: AppColors.background,
         ),
       ),
     );
   }
-}
-
-class _PlayIndicator extends StatelessWidget {
-  final bool isSelected;
-  final double size;
-
-  const _PlayIndicator({
-    required this.isSelected,
-    required this.size,
-  });
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: isSelected
-            ? Colors.redAccent
-            : const Color.fromRGBO(255, 255, 255, 0.16),
-      ),
-      child: Icon(
-        Icons.play_arrow_rounded,
-        color: Colors.white,
-        size: size * 0.72,
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Container(
+        width: size,
+        height: size,
+        padding: const EdgeInsets.all(5),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(11),
+        ),
+        child: channel.logoUrl.trim().isEmpty
+            ? fallback
+            : Image.network(
+                channel.logoUrl,
+                fit: BoxFit.contain,
+                excludeFromSemantics: true,
+                errorBuilder: (_, __, ___) => fallback,
+              ),
+      );
 }

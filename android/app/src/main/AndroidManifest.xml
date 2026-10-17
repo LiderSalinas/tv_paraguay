@@ -3,14 +3,15 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
-        android:label="TV Paraguay"
+        android:label="${appLabel}"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:hardwareAccelerated="true"
         android:usesCleartextTraffic="true">
 
         <activity
-            android:name=".MainActivity"
+            android:name="com.example.tv_paraguay.MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:theme="@style/LaunchTheme"

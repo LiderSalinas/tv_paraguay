@@ -33,10 +33,10 @@
     "shortName": "SNT",
     "category": "Nacional",
     "playerType": "hls",
-    "streamUrl": "https://d3epa8orr2qy3m.cloudfront.net/ts:abr.m3u8",
-    "webUrl": "",
+    "streamUrl": "https://d2h2wh04y3aqtb.cloudfront.net/hls/25646ipbno2g/3_4/index.m3u8",
+    "webUrl": "https://www.snt.com.py/envivo/",
     "logoUrl": "https://cdn.jsdelivr.net/gh/LiderSalinas/tv-paraguay-data@main/logos/snt.png",
-    "httpHeaders": {},
+    "httpHeaders": {"Referer": "https://www.snt.com.py/envivo/"},
     "isActive": true
   },
   {
@@ -59,10 +59,10 @@
     "shortName": "C9N",
     "category": "Noticias",
     "playerType": "hls",
-    "streamUrl": "https://d174axghh54kh0.cloudfront.net/ts:abr.m3u8",
-    "webUrl": "",
+    "streamUrl": "https://d2h2wh04y3aqtb.cloudfront.net/hls/qnxsy62odjyb/7_4/index.m3u8",
+    "webUrl": "https://www.c9n.com.py/envivo/",
     "logoUrl": "https://cdn.jsdelivr.net/gh/LiderSalinas/tv-paraguay-data@main/logos/c9n.png",
-    "httpHeaders": {},
+    "httpHeaders": {"Referer": "https://www.c9n.com.py/envivo/"},
     "isActive": true
   },
   {
@@ -111,7 +111,7 @@
     "shortName": "ÑTV",
     "category": "Noticias",
     "playerType": "hls",
-    "streamUrl": "https://copacogen.desdeparaguay.net/nandutitv/nandutitv_baja/index.m3u8",
+    "streamUrl": "https://nanduti.b-cdn.net/720p.m3u8",
     "webUrl": "",
     "logoUrl": "https://cdn.jsdelivr.net/gh/LiderSalinas/tv-paraguay-data@main/logos/nanduti-tv.png",
     "httpHeaders": {
@@ -163,13 +163,13 @@
     "shortName": "13",
     "category": "Nacional",
     "playerType": "hls",
-    "streamUrl": "",
-    "webUrl": "",
+    "streamUrl": "https://live2.eu-north-1b.cf.dmcdn.net/sec2(e5HPuEAICyrwlnObV9H1NzkKVp4aoDDGVL_VMQ07u6hrsvzo5Gi4m6HJ3O82TpmXbS-0qMILcjhGQfmszhsDS4p059fQmqfCA8ThCuuGxAF-IUWK5kgYid0BHDrOob61eep0IJQRgJGmHWxVE3w5sw)/cloud/3/xak2neu/s/live-480.m3u8",
+    "webUrl": "https://www.trece.com.py/",
     "logoUrl": "https://cdn.jsdelivr.net/gh/LiderSalinas/tv-paraguay-data@main/logos/trece.png",
     "httpHeaders": {
       "Referer": "https://trece.com.py/"
     },
-    "isActive": false
+    "isActive": true
   },
   {
     "id": 14,
@@ -177,13 +177,13 @@
     "shortName": "UNI",
     "category": "Nacional",
     "playerType": "hls",
-    "streamUrl": "",
-    "webUrl": "",
+    "streamUrl": "https://live2.eu-north-1a.cf.dmcdn.net/sec2(Jd25yugNx24W27hc6XUV1ZDT43aJbxocLmba-yXGTE17kSlT4hDbdM96WYcSfy3moqeFkg0G5YvM9EmvUfZmOFGmWkqQQ9mfs2Te3aeDjAY4aAJy5z8BYDipjE8z6hS_bd1y35yrQJSYlJIRG38e9w)/cloud/3/xak2lou/s/live-480.m3u8",
+    "webUrl": "https://www.unicanal.com.py/",
     "logoUrl": "https://cdn.jsdelivr.net/gh/LiderSalinas/tv-paraguay-data@main/logos/unicanal.png",
     "httpHeaders": {
       "Referer": "https://unicanal.com.py/"
     },
-    "isActive": false
+    "isActive": true
   },
   {
     "id": 15,
@@ -191,11 +191,13 @@
     "shortName": "GEN",
     "category": "Nacional",
     "playerType": "hls",
-    "streamUrl": "",
-    "webUrl": "",
+    "streamUrl": "https://zn1gen.desdeparaguay.net/gentv/gentv_py_baja/chunklist_w223050867.m3u8?k=78c96ff180d49d0ee625cb7189859607c8989a86a811827b7b144f35f3e28acd&exp=1789138943",
+    "webUrl": "https://gentv.desdepylabs.com/External/gentv",
     "logoUrl": "https://cdn.jsdelivr.net/gh/LiderSalinas/tv-paraguay-data@main/logos/gen-tv.png",
-    "httpHeaders": {},
-    "isActive": false
+    "httpHeaders": {
+      "Referer": "https://www.gen.com.py/"
+    },
+    "isActive": true
   },
   {
     "id": 16,
@@ -203,13 +205,13 @@
     "shortName": "ABC",
     "category": "Noticias",
     "playerType": "hls",
-    "streamUrl": "",
-    "webUrl": "",
+    "streamUrl": "https://live2.eu-north-1b.cf.dmcdn.net/sec2(-3Z4k9ynNa70NMdt-CUfI8HrUyAvfJ-eKYaMddnGjc6CVsdoRzD052gQ87nYMqphSauHyASwUMmeT1hDFUJvjwFYQopZmdq-qoDJs2oOm_zzt_6lsXA4Yte18vsDgjCI)/cloud/3/x9skr3m/d/live-480.m3u8",
+    "webUrl": "https://www.abc.com.py/tv/",
     "logoUrl": "https://cdn.jsdelivr.net/gh/LiderSalinas/tv-paraguay-data@main/logos/abc-digital.png",
     "httpHeaders": {
       "Referer": "https://www.abc.com.py/"
     },
-    "isActive": false
+    "isActive": true
   },
   {
     "id": 17,
@@ -260,8 +262,180 @@
     "category": "Regional",
     "playerType": "hls",
     "streamUrl": "https://video.hostingcaaguazu.com:19360/oasistv/oasistv.m3u8",
-    "webUrl": "",
+    "webUrl": "https://tvonline.com.py/oasistv/",
     "logoUrl": "https://tvonline.com.py/tv/img/oasistv.png",
+    "httpHeaders": {
+      "User-Agent": "Mozilla/5.0",
+      "Referer": "https://tvonline.com.py/tv/oasistv.html",
+      "Origin": "https://tvonline.com.py"
+    },
+    "isActive": true
+  },
+  {
+    "id": 21,
+    "name": "RED BULL TV ES",
+    "shortName": "RBES",
+    "category": "Deportes",
+    "playerType": "hls",
+    "streamUrl": "https://886bd3fbc782459f8de7555d32d7e9ce.mediatailor.us-west-2.amazonaws.com/v1/master/ba62fe743df0fe93366eba3a257d792884136c7f/LINEAR-957-WORBLATAMESFAST-WHALETVPLUS/957/whaletvplus/hls/master/playlist.m3u8",
+    "webUrl": "",
+    "logoUrl": "https://images.pluto.tv/channels/5e7cb84a172a0f0007da69e4/colorLogoPNG.png",
+    "httpHeaders": {},
+    "isActive": true
+  },
+  {
+    "id": 22,
+    "name": "FIFA+ LATINOAMERICA",
+    "shortName": "FIFA+",
+    "category": "Deportes",
+    "playerType": "hls",
+    "streamUrl": "https://6c849fb3.wurl.com/master/f36d25e7e52f1ba8d7e56eb859c636563214f541/TEctbXhfRklGQVBsdXNTcGFuaXNoLTFfSExT/playlist.m3u8",
+    "webUrl": "",
+    "logoUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9c/FIFA%2B_(2025).svg/960px-FIFA%2B_(2025).svg.png",
+    "httpHeaders": {},
+    "isActive": true
+  },
+  {
+    "id": 23,
+    "name": "TYC SPORTS",
+    "shortName": "TYC",
+    "category": "Deportes",
+    "playerType": "hls",
+    "streamUrl": "https://amg26268-amg26268c14-freelivesports-emea-10267.playouts.now.amagi.tv/ts-us-e2-n2/playlist/amg26268-sportsstudio-tycsports-freelivesportsemea/playlist.m3u8",
+    "webUrl": "",
+    "logoUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/54/TyC_Sports_logo.svg/960px-TyC_Sports_logo.svg.png",
+    "httpHeaders": {},
+    "isActive": true
+  },
+  {
+    "id": 24,
+    "name": "ESPN LATINOAMERICA",
+    "shortName": "ESPN",
+    "category": "Deportes",
+    "playerType": "hls",
+    "streamUrl": "https://barinaslive1.boldmss.com/ESPN/ESPN.isml/ESPN.m3u8",
+    "webUrl": "",
+    "logoUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/ESPN_wordmark.svg/960px-ESPN_wordmark.svg.png",
+    "httpHeaders": {},
+    "isActive": true
+  },
+  {
+    "id": 25,
+    "name": "TELEDEPORTE",
+    "shortName": "TDP",
+    "category": "Deportes",
+    "playerType": "hls",
+    "streamUrl": "https://rtve01p.origin.c21livecloud.com/live-origin/tdp-hls/bitrate_1.m3u8",
+    "webUrl": "",
+    "logoUrl": "",
+    "httpHeaders": {},
+    "isActive": true
+  },
+  {
+    "id": 26,
+    "name": "RED BULL TV",
+    "shortName": "RBTV",
+    "category": "Deportes",
+    "playerType": "hls",
+    "streamUrl": "https://rbmn-live.akamaized.net/hls/live/590964/BoRB-AT/master.m3u8",
+    "webUrl": "",
+    "logoUrl": "https://images.pluto.tv/channels/5e7cb84a172a0f0007da69e4/colorLogoPNG.png",
+    "httpHeaders": {},
+    "isActive": true
+  },
+  {
+    "id": 27,
+    "name": "ESPN 2",
+    "shortName": "ESPN2",
+    "category": "Deportes",
+    "playerType": "hls",
+    "streamUrl": "https://barinaslive1.boldmss.com/ESPN_2/ESPN_2.isml/ESPN_2.m3u8",
+    "webUrl": "",
+    "logoUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bf/ESPN2_logo.svg/960px-ESPN2_logo.svg.png",
+    "httpHeaders": {},
+    "isActive": true
+  },
+  {
+    "id": 28,
+    "name": "ESPN 3",
+    "shortName": "ESPN3",
+    "category": "Deportes",
+    "playerType": "hls",
+    "streamUrl": "https://barinaslive1.boldmss.com/ESPN_3/ESPN_3.isml/ESPN_3.m3u8",
+    "webUrl": "",
+    "logoUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/ESPN_wordmark.svg/960px-ESPN_wordmark.svg.png",
+    "httpHeaders": {},
+    "isActive": true
+  },
+  {
+    "id": 29,
+    "name": "ESPN 4",
+    "shortName": "ESPN4",
+    "category": "Deportes",
+    "playerType": "hls",
+    "streamUrl": "https://barinaslive1.boldmss.com/ESPN_4/ESPN_4.isml/ESPN_4.m3u8",
+    "webUrl": "",
+    "logoUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/ESPN_wordmark.svg/960px-ESPN_wordmark.svg.png",
+    "httpHeaders": {},
+    "isActive": true
+  },
+  {
+    "id": 30,
+    "name": "ESPN 5",
+    "shortName": "ESPN5",
+    "category": "Deportes",
+    "playerType": "hls",
+    "streamUrl": "https://barinaslive1.boldmss.com/ESPN_5/ESPN_5.isml/ESPN_5.m3u8",
+    "webUrl": "",
+    "logoUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/ESPN_wordmark.svg/960px-ESPN_wordmark.svg.png",
+    "httpHeaders": {},
+    "isActive": true
+  },
+  {
+    "id": 31,
+    "name": "ESPN 6",
+    "shortName": "ESPN6",
+    "category": "Deportes",
+    "playerType": "hls",
+    "streamUrl": "https://barinaslive1.boldmss.com/ESPN_6/ESPN_6.isml/ESPN_6.m3u8",
+    "webUrl": "",
+    "logoUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/ESPN_wordmark.svg/960px-ESPN_wordmark.svg.png",
+    "httpHeaders": {},
+    "isActive": true
+  },
+  {
+    "id": 32,
+    "name": "ESPN 7",
+    "shortName": "ESPN7",
+    "category": "Deportes",
+    "playerType": "hls",
+    "streamUrl": "https://barinaslive1.boldmss.com/ESPN_7/ESPN_7.isml/ESPN_7.m3u8",
+    "webUrl": "",
+    "logoUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/ESPN_wordmark.svg/960px-ESPN_wordmark.svg.png",
+    "httpHeaders": {},
+    "isActive": true
+  },
+  {
+    "id": 33,
+    "name": "ESPN PREMIUM (PRUEBA)",
+    "shortName": "ESPNP",
+    "category": "Deportes",
+    "playerType": "hls",
+    "streamUrl": "http://190.128.214.97:64333/play/a02i/index.m3u8",
+    "webUrl": "",
+    "logoUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/ESPN_wordmark.svg/960px-ESPN_wordmark.svg.png",
+    "httpHeaders": {},
+    "isActive": true
+  },
+  {
+    "id": 34,
+    "name": "PLAY DEPORTES (PRUEBA)",
+    "shortName": "PLAY",
+    "category": "Deportes",
+    "playerType": "hls",
+    "streamUrl": "http://45.134.141.161:2200/ARG/Tigo_Sports/tracks-v1a1/mono.m3u8",
+    "webUrl": "",
+    "logoUrl": "",
     "httpHeaders": {},
     "isActive": true
   }
