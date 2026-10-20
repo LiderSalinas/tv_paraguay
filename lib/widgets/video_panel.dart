@@ -10,33 +10,41 @@ class VideoPanel extends StatefulWidget {
   final Channel? channel;
   final bool isFullScreen;
   final VoidCallback? onToggleFullScreen;
+  final VoidCallback? onOpenExternalApp;
 
   const VideoPanel({
     super.key,
     required this.channel,
     this.isFullScreen = false,
     this.onToggleFullScreen,
+    this.onOpenExternalApp,
   });
 
   @override
   State<VideoPanel> createState() => _VideoPanelState();
 }
 
-class _VideoPanelState extends State<VideoPanel> {
+class _VideoPanelState extends State<VideoPanel> with WidgetsBindingObserver {
+  static const Duration _initializationTimeout = Duration(seconds: 20);
+
   VideoPlayerController? _videoController;
+  VoidCallback? _videoControllerListener;
 
   Timer? _overlayTimer;
 
   bool _isLoading = false;
   bool _hasError = false;
   bool _showOverlay = true;
+  bool _resumePlaybackAfterPause = false;
 
   String _errorMessage = '';
+  int _setupRequest = 0;
 
   @override
   void initState() {
     super.initState();
-    _setupPlayer();
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(_setupPlayer());
   }
 
   @override
@@ -49,10 +57,11 @@ class _VideoPanelState extends State<VideoPanel> {
         oldChannel?.id != newChannel?.id ||
         oldChannel?.streamUrl != newChannel?.streamUrl ||
         oldChannel?.playerType != newChannel?.playerType ||
+        oldChannel?.externalPackage != newChannel?.externalPackage ||
         !mapEquals(oldChannel?.httpHeaders, newChannel?.httpHeaders);
 
     if (channelChanged) {
-      _setupPlayer();
+      unawaited(_setupPlayer());
     }
 
     if (oldWidget.isFullScreen != widget.isFullScreen) {
@@ -60,13 +69,43 @@ class _VideoPanelState extends State<VideoPanel> {
     }
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final controller = _videoController;
+    if (controller == null || !controller.value.isInitialized) return;
+
+    switch (state) {
+      case AppLifecycleState.resumed:
+        if (_resumePlaybackAfterPause &&
+            !controller.value.hasError &&
+            mounted) {
+          _resumePlaybackAfterPause = false;
+          unawaited(controller.play());
+        }
+        break;
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+        _resumePlaybackAfterPause =
+            _resumePlaybackAfterPause || controller.value.isPlaying;
+        unawaited(controller.pause());
+        break;
+      case AppLifecycleState.detached:
+        _resumePlaybackAfterPause = false;
+        unawaited(controller.pause());
+        break;
+    }
+  }
+
   Future<void> _setupPlayer() async {
+    final request = ++_setupRequest;
     final channel = widget.channel;
 
     _stopOverlayTimer();
-    await _disposeVideoController();
+    _resumePlaybackAfterPause = false;
+    await _disposeCurrentVideoController();
 
-    if (!mounted) return;
+    if (!mounted || request != _setupRequest) return;
 
     setState(() {
       _isLoading = true;
@@ -82,6 +121,14 @@ class _VideoPanelState extends State<VideoPanel> {
       return;
     }
 
+    if (channel.isExternalApp) {
+      setState(() {
+        _isLoading = false;
+        _hasError = false;
+      });
+      return;
+    }
+
     if (!channel.isHls) {
       setState(() {
         _isLoading = false;
@@ -91,10 +138,10 @@ class _VideoPanelState extends State<VideoPanel> {
       return;
     }
 
-    await _setupHls(channel);
+    await _setupHls(channel, request);
   }
 
-  Future<void> _setupHls(Channel channel) async {
+  Future<void> _setupHls(Channel channel, int request) async {
     try {
       if (channel.streamUrl.trim().isEmpty) {
         throw Exception('Este canal no tiene streamUrl');
@@ -104,14 +151,28 @@ class _VideoPanelState extends State<VideoPanel> {
         Uri.parse(channel.streamUrl),
         httpHeaders: channel.httpHeaders,
       );
+      void listener() => _handleVideoControllerValue(controller, request);
 
       _videoController = controller;
+      _videoControllerListener = listener;
+      controller.addListener(listener);
 
-      await controller.initialize();
+      await controller.initialize().timeout(_initializationTimeout);
+
+      if (!mounted ||
+          request != _setupRequest ||
+          !identical(_videoController, controller)) {
+        return;
+      }
+
       await controller.setLooping(true);
       await controller.play();
 
-      if (!mounted) return;
+      if (!mounted ||
+          request != _setupRequest ||
+          !identical(_videoController, controller)) {
+        return;
+      }
 
       setState(() {
         _isLoading = false;
@@ -120,16 +181,44 @@ class _VideoPanelState extends State<VideoPanel> {
       });
 
       _showTemporaryOverlay();
-    } catch (_) {
-      if (!mounted) return;
+    } catch (error) {
+      if (!mounted || request != _setupRequest) return;
+
+      await _disposeCurrentVideoController();
+
+      if (!mounted || request != _setupRequest) return;
 
       setState(() {
         _isLoading = false;
         _hasError = true;
         _showOverlay = true;
-        _errorMessage = 'Canal no disponible. Probá actualizar o elegir otro canal.';
+        _errorMessage =
+            error is TimeoutException
+                ? 'El canal tardó demasiado en responder. Probá nuevamente.'
+                : 'Canal no disponible. Probá actualizar o elegir otro canal.';
       });
     }
+  }
+
+  void _handleVideoControllerValue(
+    VideoPlayerController controller,
+    int request,
+  ) {
+    if (!mounted ||
+        request != _setupRequest ||
+        !identical(_videoController, controller) ||
+        !controller.value.hasError ||
+        _hasError) {
+      return;
+    }
+
+    setState(() {
+      _isLoading = false;
+      _hasError = true;
+      _showOverlay = true;
+      _errorMessage =
+          'La señal se interrumpió. Probá reintentar o actualizar la grilla.';
+    });
   }
 
   void _stopOverlayTimer() {
@@ -155,23 +244,30 @@ class _VideoPanelState extends State<VideoPanel> {
     });
   }
 
-  Future<void> _disposeVideoController() async {
+  Future<void> _disposeCurrentVideoController() async {
     final controller = _videoController;
+    final listener = _videoControllerListener;
+
+    _videoController = null;
+    _videoControllerListener = null;
 
     if (controller != null) {
       try {
+        if (listener != null) {
+          controller.removeListener(listener);
+        }
         await controller.pause();
         await controller.dispose();
       } catch (_) {}
     }
-
-    _videoController = null;
   }
 
   @override
   void dispose() {
+    _setupRequest++;
+    WidgetsBinding.instance.removeObserver(this);
     _stopOverlayTimer();
-    _disposeVideoController();
+    unawaited(_disposeCurrentVideoController());
     super.dispose();
   }
 
@@ -186,14 +282,20 @@ class _VideoPanelState extends State<VideoPanel> {
         color: Colors.black,
         child: Stack(
           children: [
-            Positioned.fill(
-              child: _buildContent(channel),
-            ),
+            Positioned.fill(child: _buildContent(channel)),
             if (_isLoading) _buildLoadingOverlay(channel),
             if (_hasError) _buildErrorOverlay(channel),
-            if (!_isLoading && !_hasError && channel != null && _showOverlay)
+            if (!_isLoading &&
+                !_hasError &&
+                channel != null &&
+                channel.isHls &&
+                _showOverlay)
               _buildCleanChannelBadge(channel),
-            if (!_isLoading && !_hasError && channel != null && _showOverlay)
+            if (!_isLoading &&
+                !_hasError &&
+                channel != null &&
+                channel.isHls &&
+                _showOverlay)
               _buildFullScreenButton(),
           ],
         ),
@@ -215,6 +317,10 @@ class _VideoPanelState extends State<VideoPanel> {
       );
     }
 
+    if (channel.isExternalApp) {
+      return _buildExternalAppContent(channel);
+    }
+
     final controller = _videoController;
 
     if (controller == null || !controller.value.isInitialized) {
@@ -228,6 +334,62 @@ class _VideoPanelState extends State<VideoPanel> {
           width: controller.value.size.width,
           height: controller.value.size.height,
           child: VideoPlayer(controller),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExternalAppContent(Channel channel) {
+    return Container(
+      color: const Color.fromRGBO(6, 16, 30, 1),
+      padding: const EdgeInsets.all(28),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.sports_rounded,
+                color: Color.fromRGBO(239, 45, 54, 1),
+                size: 72,
+              ),
+              const SizedBox(height: 18),
+              Text(
+                channel.name,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Los canales ESPN requieren una cuenta con acceso a ESPN. '
+                'Se abrirán de forma segura en la aplicación oficial Disney+.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 17,
+                  height: 1.35,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 24),
+              FilledButton.icon(
+                onPressed: widget.onOpenExternalApp,
+                icon: const Icon(Icons.open_in_new_rounded),
+                label: const Text('Abrir ESPN en Disney+'),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'En TV Box: presioná OK para abrir.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white54, fontSize: 14),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -324,10 +486,7 @@ class _VideoPanelState extends State<VideoPanel> {
         opacity: _showOverlay ? 1 : 0,
         duration: const Duration(milliseconds: 220),
         child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 10,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
             color: const Color.fromRGBO(0, 0, 0, 0.76),
             borderRadius: BorderRadius.circular(16),
@@ -357,10 +516,7 @@ class _VideoPanelState extends State<VideoPanel> {
               ),
               const SizedBox(width: 10),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 9,
-                  vertical: 4,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.redAccent,
                   borderRadius: BorderRadius.circular(18),

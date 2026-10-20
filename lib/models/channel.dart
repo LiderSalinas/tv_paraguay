@@ -7,6 +7,7 @@ class Channel {
   final String streamUrl;
   final String webUrl;
   final String logoUrl;
+  final String externalPackage;
   final Map<String, String> httpHeaders;
   final bool isActive;
 
@@ -19,6 +20,7 @@ class Channel {
     required this.streamUrl,
     required this.webUrl,
     required this.logoUrl,
+    required this.externalPackage,
     required this.httpHeaders,
     required this.isActive,
   });
@@ -33,6 +35,7 @@ class Channel {
       streamUrl: json['streamUrl'] ?? '',
       webUrl: json['webUrl'] ?? '',
       logoUrl: json['logoUrl'] ?? '',
+      externalPackage: json['externalPackage'] ?? '',
       httpHeaders: Map<String, String>.from(json['httpHeaders'] ?? {}),
       isActive: json['isActive'] ?? true,
     );
@@ -48,6 +51,7 @@ class Channel {
       'streamUrl': streamUrl,
       'webUrl': webUrl,
       'logoUrl': logoUrl,
+      'externalPackage': externalPackage,
       'httpHeaders': httpHeaders,
       'isActive': isActive,
     };
@@ -56,6 +60,8 @@ class Channel {
   bool get isWebView => playerType.toLowerCase() == 'webview';
 
   bool get isHls => playerType.toLowerCase() == 'hls';
+
+  bool get isExternalApp => playerType.toLowerCase() == 'externalapp';
 
   String get playerLabel {
     final type = playerType.trim().toUpperCase();

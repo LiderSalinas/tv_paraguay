@@ -264,5 +264,18 @@
     "logoUrl": "https://tvonline.com.py/tv/img/oasistv.png",
     "httpHeaders": {},
     "isActive": true
+  },
+  {
+    "id": 24,
+    "name": "ESPN — DISNEY+",
+    "shortName": "ESPN",
+    "category": "Deportes",
+    "playerType": "externalApp",
+    "streamUrl": "",
+    "webUrl": "",
+    "logoUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/ESPN_wordmark.svg/960px-ESPN_wordmark.svg.png",
+    "externalPackage": "com.disney.disneyplus",
+    "httpHeaders": {},
+    "isActive": true
   }
 ]

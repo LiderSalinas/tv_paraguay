@@ -158,6 +158,7 @@ class _ChannelTile extends StatelessWidget {
               const SizedBox(width: 8),
               _PlayIndicator(
                 isSelected: isSelected,
+                isExternalApp: channel.isExternalApp,
                 size: playSize,
               ),
               SizedBox(width: compact ? 10 : 18),
@@ -239,10 +240,12 @@ class _FallbackLogo extends StatelessWidget {
 
 class _PlayIndicator extends StatelessWidget {
   final bool isSelected;
+  final bool isExternalApp;
   final double size;
 
   const _PlayIndicator({
     required this.isSelected,
+    required this.isExternalApp,
     required this.size,
   });
 
@@ -258,9 +261,9 @@ class _PlayIndicator extends StatelessWidget {
             : const Color.fromRGBO(255, 255, 255, 0.16),
       ),
       child: Icon(
-        Icons.play_arrow_rounded,
+        isExternalApp ? Icons.open_in_new_rounded : Icons.play_arrow_rounded,
         color: Colors.white,
-        size: size * 0.72,
+        size: size * (isExternalApp ? 0.55 : 0.72),
       ),
     );
   }

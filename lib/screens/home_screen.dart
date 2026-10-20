@@ -5,18 +5,28 @@ import 'package:flutter/services.dart';
 
 import '../models/channel.dart';
 import '../services/channel_service.dart';
+import '../services/external_app_service.dart';
 import '../widgets/channel_list.dart';
 import '../widgets/video_panel.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({
+    super.key,
+    this.channelService,
+    this.externalAppLauncher,
+  });
+
+  final ChannelService? channelService;
+  final ExternalAppLauncher? externalAppLauncher;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
-  final ChannelService _channelService = ChannelService();
+  late final ChannelService _channelService;
+  late final bool _ownsChannelService;
+  late final ExternalAppLauncher _externalAppLauncher;
   final FocusNode _tvFocusNode = FocusNode(debugLabel: 'tv_box_focus');
   final ScrollController _scrollController = ScrollController();
 
@@ -27,9 +37,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isRefreshing = false;
   bool _isChannelRequestInFlight = false;
   bool _hasLoadedChannels = false;
-  bool _isUsingRemoteChannels = false;
   bool _isFullScreen = false;
   bool _showHint = true;
+
+  ChannelListSource _channelListSource = ChannelListSource.bundled;
 
   String _errorMessage = '';
   String _typedChannelNumber = '';
@@ -48,6 +59,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    _channelService = widget.channelService ?? ChannelService();
+    _ownsChannelService = widget.channelService == null;
+    _externalAppLauncher =
+        widget.externalAppLauncher ?? PlatformExternalAppLauncher();
     WidgetsBinding.instance.addObserver(this);
     _loadChannels(showFeedback: false);
     _showTemporaryHint();
@@ -64,6 +79,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _hintTimer?.cancel();
     _numberTimer?.cancel();
+    if (_ownsChannelService) {
+      _channelService.dispose();
+    }
     _tvFocusNode.dispose();
     _scrollController.dispose();
 
@@ -102,21 +120,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (!mounted) return;
 
       final channels = result.channels;
-      final previousIndex = previousChannelId == null
-          ? -1
-          : channels.indexWhere((channel) => channel.id == previousChannelId);
+      final previousIndex =
+          previousChannelId == null
+              ? -1
+              : channels.indexWhere(
+                (channel) => channel.id == previousChannelId,
+              );
 
       setState(() {
         _channels = channels;
-        _selectedChannel = channels.isEmpty
-            ? null
-            : previousIndex >= 0
+        _selectedChannel =
+            channels.isEmpty
+                ? null
+                : previousIndex >= 0
                 ? channels[previousIndex]
                 : channels.first;
         _isLoading = false;
         _isRefreshing = false;
         _hasLoadedChannels = true;
-        _isUsingRemoteChannels = result.isRemote;
+        _channelListSource = result.source;
       });
 
       if (showFeedback) {
@@ -141,10 +163,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _showChannelLoadFeedback(ChannelLoadResult result) {
-    final isRemote = result.isRemote;
-    final message = isRemote
-        ? 'Grilla actualizada desde Internet: ${result.channels.length} canales.'
-        : 'No se pudo conectar a la grilla remota. Se usa el respaldo integrado.';
+    late final String message;
+    late final Color backgroundColor;
+
+    switch (result.source) {
+      case ChannelListSource.remote:
+        message =
+            'Grilla actualizada desde Internet: ${result.channels.length} canales.';
+        backgroundColor = const Color.fromRGBO(24, 116, 67, 1);
+        break;
+      case ChannelListSource.cached:
+        message =
+            'Sin conexión a la grilla. Se usa la última lista válida guardada.';
+        backgroundColor = const Color.fromRGBO(32, 91, 150, 1);
+        break;
+      case ChannelListSource.bundled:
+        message =
+            'Sin lista remota guardada. Se usa el respaldo incluido en la APK.';
+        backgroundColor = const Color.fromRGBO(173, 91, 12, 1);
+        break;
+    }
 
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -154,9 +192,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             message,
             style: const TextStyle(fontWeight: FontWeight.w700),
           ),
-          backgroundColor: isRemote
-              ? const Color.fromRGBO(24, 116, 67, 1)
-              : const Color.fromRGBO(173, 91, 12, 1),
+          backgroundColor: backgroundColor,
           duration: const Duration(seconds: 4),
         ),
       );
@@ -201,6 +237,40 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     _requestTvFocus();
     _showTemporaryHint();
+
+    if (channel.isExternalApp) {
+      unawaited(_openExternalApp(channel));
+    }
+  }
+
+  Future<void> _openExternalApp(Channel channel) async {
+    final packageName = channel.externalPackage.trim();
+    if (packageName.isEmpty) return;
+
+    try {
+      final result = await _externalAppLauncher.launch(packageName);
+      if (!mounted || result == ExternalAppLaunchResult.opened) return;
+
+      final message = result == ExternalAppLaunchResult.storeOpened
+          ? 'Disney+ no estaba instalado. Se abrió Google Play.'
+          : 'Disney+ no está instalado y Google Play no está disponible.';
+
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(message)));
+    } catch (_) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('No se pudo abrir Disney+ en este dispositivo.'),
+          ),
+        );
+    }
+
+    _requestTvFocus();
   }
 
   void _selectChannelByIndex(int index) {
@@ -225,7 +295,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final index = _channels.indexWhere((channel) => channel.id == number);
 
     if (index >= 0) {
-      _selectChannelByIndex(index);
+      final channel = _channels[index];
+      if (channel.isExternalApp) {
+        _selectChannel(channel);
+      } else {
+        _selectChannelByIndex(index);
+      }
       return;
     }
 
@@ -240,9 +315,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (_channels.isEmpty) return;
 
     final currentIndex = _selectedIndex;
-    final nextIndex = currentIndex < 0
-        ? 0
-        : (currentIndex + 1) % _channels.length;
+    final nextIndex =
+        currentIndex < 0 ? 0 : (currentIndex + 1) % _channels.length;
 
     _selectChannelByIndex(nextIndex);
   }
@@ -251,9 +325,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (_channels.isEmpty) return;
 
     final currentIndex = _selectedIndex;
-    final previousIndex = currentIndex <= 0
-        ? _channels.length - 1
-        : currentIndex - 1;
+    final previousIndex =
+        currentIndex <= 0 ? _channels.length - 1 : currentIndex - 1;
 
     _selectChannelByIndex(previousIndex);
   }
@@ -283,18 +356,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
 
     if (nextValue) {
-      await SystemChrome.setEnabledSystemUIMode(
-        SystemUiMode.immersiveSticky,
-      );
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
       await SystemChrome.setPreferredOrientations([
         DeviceOrientation.landscapeLeft,
         DeviceOrientation.landscapeRight,
       ]);
     } else {
-      await SystemChrome.setEnabledSystemUIMode(
-        SystemUiMode.edgeToEdge,
-      );
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
       await SystemChrome.setPreferredOrientations([
         DeviceOrientation.portraitUp,
@@ -308,7 +377,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _enterFullScreen() async {
-    if (_isFullScreen) return;
+    if (_isFullScreen || _selectedChannel?.isExternalApp == true) return;
     await _toggleFullScreen();
   }
 
@@ -349,9 +418,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final nextValue = (_typedChannelNumber + digit.toString()).trim();
 
     setState(() {
-      _typedChannelNumber = nextValue.length > 2
-          ? digit.toString()
-          : nextValue;
+      _typedChannelNumber = nextValue.length > 2 ? digit.toString() : nextValue;
     });
 
     _showTemporaryHint();
@@ -408,6 +475,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         key == LogicalKeyboardKey.space) {
       if (_typedChannelNumber.isNotEmpty) {
         _confirmTypedNumber();
+      } else if (_selectedChannel?.isExternalApp == true) {
+        unawaited(_openExternalApp(_selectedChannel!));
       } else {
         _toggleFullScreen();
       }
@@ -465,9 +534,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         },
         child: Scaffold(
           backgroundColor: Colors.black,
-          body: SafeArea(
-            child: _buildBody(),
-          ),
+          body: SafeArea(child: _buildBody()),
         ),
       ),
     );
@@ -476,9 +543,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Widget _buildBody() {
     if (_isLoading) {
       return const Center(
-        child: CircularProgressIndicator(
-          color: Colors.redAccent,
-        ),
+        child: CircularProgressIndicator(color: Colors.redAccent),
       );
     }
 
@@ -494,6 +559,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               channel: _selectedChannel,
               isFullScreen: true,
               onToggleFullScreen: _toggleFullScreen,
+              onOpenExternalApp: _selectedChannel == null
+                  ? null
+                  : () => _openExternalApp(_selectedChannel!),
             ),
           ),
           if (_showHint) _buildTvBoxHint(),
@@ -512,9 +580,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               children: [
                 _buildHeader(),
                 Expanded(
-                  child: isWide
-                      ? _buildWideLayout(constraints)
-                      : _buildMobileLayout(),
+                  child:
+                      isWide
+                          ? _buildWideLayout(constraints)
+                          : _buildMobileLayout(),
                 ),
               ],
             ),
@@ -561,11 +630,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             IconButton(
               tooltip: 'Actualizar canales',
               onPressed: () => _loadChannels(),
-              icon: const Icon(
-                Icons.refresh,
-                color: Colors.white,
-                size: 31,
-              ),
+              icon: const Icon(Icons.refresh, color: Colors.white, size: 31),
             ),
         ],
       ),
@@ -573,34 +638,48 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildChannelSourceBadge() {
-    final isRemote = _isUsingRemoteChannels;
+    late final String tooltip;
+    late final String label;
+    late final IconData icon;
+    late final Color color;
+
+    switch (_channelListSource) {
+      case ChannelListSource.remote:
+        tooltip = 'Lista cargada desde Internet';
+        label = 'EN LÍNEA';
+        icon = Icons.cloud_done_rounded;
+        color = const Color.fromRGBO(24, 116, 67, 0.88);
+        break;
+      case ChannelListSource.cached:
+        tooltip = 'Última lista remota válida guardada';
+        label = 'GUARDADA';
+        icon = Icons.cloud_sync_rounded;
+        color = const Color.fromRGBO(32, 91, 150, 0.88);
+        break;
+      case ChannelListSource.bundled:
+        tooltip = 'Lista de respaldo incluida en la APK';
+        label = 'INTEGRADA';
+        icon = Icons.cloud_off_rounded;
+        color = const Color.fromRGBO(173, 91, 12, 0.88);
+        break;
+    }
 
     return Tooltip(
-      message: isRemote
-          ? 'Lista cargada desde Internet'
-          : 'Se está usando la lista integrada',
+      message: tooltip,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         decoration: BoxDecoration(
-          color: isRemote
-              ? const Color.fromRGBO(24, 116, 67, 0.88)
-              : const Color.fromRGBO(173, 91, 12, 0.88),
+          color: color,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: const Color.fromRGBO(255, 255, 255, 0.14),
-          ),
+          border: Border.all(color: const Color.fromRGBO(255, 255, 255, 0.14)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              isRemote ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
-              color: Colors.white,
-              size: 17,
-            ),
+            Icon(icon, color: Colors.white, size: 17),
             const SizedBox(width: 6),
             Text(
-              isRemote ? 'EN LÍNEA' : 'RESPALDO',
+              label,
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 11,
@@ -639,6 +718,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 channel: _selectedChannel,
                 isFullScreen: false,
                 onToggleFullScreen: _toggleFullScreen,
+                onOpenExternalApp: _selectedChannel == null
+                    ? null
+                    : () => _openExternalApp(_selectedChannel!),
               ),
             ),
           ),
@@ -660,6 +742,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 channel: _selectedChannel,
                 isFullScreen: false,
                 onToggleFullScreen: _toggleFullScreen,
+                onOpenExternalApp: _selectedChannel == null
+                    ? null
+                    : () => _openExternalApp(_selectedChannel!),
               ),
             ),
           ),
@@ -685,10 +770,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       bottom: 18,
       child: Center(
         child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 18,
-            vertical: 12,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
           decoration: BoxDecoration(
             color: const Color.fromRGBO(20, 20, 20, 0.88),
             borderRadius: BorderRadius.circular(22),
@@ -715,17 +797,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       left: 24,
       top: 96,
       child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 22,
-          vertical: 16,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
         decoration: BoxDecoration(
           color: const Color.fromRGBO(0, 0, 0, 0.82),
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: Colors.redAccent,
-            width: 1.5,
-          ),
+          border: Border.all(color: Colors.redAccent, width: 1.5),
         ),
         child: Text(
           _typedChannelNumber.padLeft(2, '0'),
@@ -746,11 +822,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.wifi_off,
-              color: Colors.redAccent,
-              size: 64,
-            ),
+            const Icon(Icons.wifi_off, color: Colors.redAccent, size: 64),
             const SizedBox(height: 16),
             Text(
               _errorMessage,

@@ -39,8 +39,11 @@ jobs:
       - name: Analizar código
         run: flutter analyze
 
+      - name: Ejecutar pruebas
+        run: flutter test
+
       - name: Compilar APK
-        run: flutter build apk --release
+        run: flutter build apk --release --target-platform android-arm64
 
       - name: Guardar APK
         uses: actions/upload-artifact@v4

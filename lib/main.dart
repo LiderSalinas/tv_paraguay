@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'screens/home_screen.dart';
+import 'services/channel_service.dart';
+import 'services/external_app_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -8,7 +10,14 @@ void main() {
 }
 
 class TvParaguayApp extends StatelessWidget {
-  const TvParaguayApp({super.key});
+  const TvParaguayApp({
+    super.key,
+    this.channelService,
+    this.externalAppLauncher,
+  });
+
+  final ChannelService? channelService;
+  final ExternalAppLauncher? externalAppLauncher;
 
   @override
   Widget build(BuildContext context) {
@@ -23,7 +32,10 @@ class TvParaguayApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const HomeScreen(),
+      home: HomeScreen(
+        channelService: channelService,
+        externalAppLauncher: externalAppLauncher,
+      ),
     );
   }
 }
