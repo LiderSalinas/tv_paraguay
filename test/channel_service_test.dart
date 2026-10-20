@@ -7,6 +7,14 @@ import 'package:tv_paraguay/services/channel_service.dart';
 
 const _remoteUrl = 'https://example.test/canales.json';
 
+http.Response _jsonResponse(String body, {int statusCode = 200}) {
+  return http.Response.bytes(
+    utf8.encode(body),
+    statusCode,
+    headers: const {'content-type': 'application/json; charset=utf-8'},
+  );
+}
+
 String _channelListJson({
   required String name,
   int id = 1,
@@ -59,7 +67,7 @@ void main() {
         final remoteJson = _channelListJson(name: 'REMOTO');
         final client = MockClient((request) async {
           capturedRequest = request;
-          return http.Response(remoteJson, 200);
+          return _jsonResponse(remoteJson);
         });
         final service = ChannelService(
           httpClient: client,
@@ -87,8 +95,7 @@ void main() {
         final cache = _MemoryChannelListCache();
         final firstService = ChannelService(
           httpClient: MockClient(
-            (_) async =>
-                http.Response(_channelListJson(name: 'VERSIÓN A'), 200),
+            (_) async => _jsonResponse(_channelListJson(name: 'VERSIÓN A')),
           ),
           cache: cache,
           assetLoader: () async => _channelListJson(name: 'ASSET'),
@@ -100,8 +107,7 @@ void main() {
 
         final reopenedService = ChannelService(
           httpClient: MockClient(
-            (_) async =>
-                http.Response(_channelListJson(name: 'VERSIÓN B'), 200),
+            (_) async => _jsonResponse(_channelListJson(name: 'VERSIÓN B')),
           ),
           cache: cache,
           assetLoader: () async => _channelListJson(name: 'ASSET'),
@@ -190,7 +196,7 @@ void main() {
         )[0],
       ]);
       final service = ChannelService(
-        httpClient: MockClient((_) async => http.Response(json, 200)),
+        httpClient: MockClient((_) async => _jsonResponse(json)),
         cache: _MemoryChannelListCache(),
         assetLoader: () async => _channelListJson(name: 'ASSET'),
         remoteUrls: const [_remoteUrl],
@@ -211,7 +217,7 @@ void main() {
         externalPackage: 'com.disney.disneyplus',
       );
       final service = ChannelService(
-        httpClient: MockClient((_) async => http.Response(externalJson, 200)),
+        httpClient: MockClient((_) async => _jsonResponse(externalJson)),
         cache: _MemoryChannelListCache(),
         assetLoader: () async => _channelListJson(name: 'ASSET'),
         remoteUrls: const [_remoteUrl],
@@ -236,7 +242,7 @@ void main() {
       );
       final service = ChannelService(
         httpClient: MockClient(
-          (_) async => http.Response(invalidExternalJson, 200),
+          (_) async => _jsonResponse(invalidExternalJson),
         ),
         cache: _MemoryChannelListCache(),
         assetLoader: () async => _channelListJson(name: 'RESPALDO'),
