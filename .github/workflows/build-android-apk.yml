@@ -6,6 +6,7 @@ on:
     branches:
       - feature/embed-player
       - codex/remote-channel-refresh
+      - codex/google-tv-universal
     paths:
       - ".github/workflows/build-android-apk.yml"
       - "android/**"
@@ -27,6 +28,12 @@ jobs:
       - name: Descargar código
         uses: actions/checkout@v4
 
+      - name: Preparar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
       - name: Preparar Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -43,13 +50,63 @@ jobs:
       - name: Ejecutar pruebas
         run: flutter test
 
-      - name: Compilar APK
-        run: flutter build apk --release --target-platform android-arm64
+      - name: Compilar APK universal ARM de 32 y 64 bits
+        run: flutter build apk --release --target-platform android-arm,android-arm64
 
-      - name: Guardar APK
+      - name: Verificar compatibilidad y firma del APK
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import re
+          import shutil
+          import subprocess
+          import zipfile
+
+          apk = pathlib.Path("build/app/outputs/flutter-apk/app-release.apk")
+          with zipfile.ZipFile(apk) as archive:
+              assert archive.testzip() is None, "El APK contiene archivos dañados"
+              names = set(archive.namelist())
+              for abi in ("armeabi-v7a", "arm64-v8a"):
+                  for library in ("libapp.so", "libflutter.so"):
+                      assert f"lib/{abi}/{library}" in names, f"Falta {library} para {abi}"
+
+          sdk = pathlib.Path(os.environ.get("ANDROID_SDK_ROOT") or os.environ["ANDROID_HOME"])
+          aapt = next(iter(sorted(sdk.glob("build-tools/*/aapt"), reverse=True)), None)
+          signer = next(iter(sorted(sdk.glob("build-tools/*/apksigner"), reverse=True)), None)
+          assert aapt and signer, "No se encontraron las herramientas Android de verificación"
+          badging = subprocess.check_output([str(aapt), "dump", "badging", str(apk)], text=True)
+          assert "leanback-launchable-activity:" in badging, "Falta la entrada de Android TV"
+          assert not re.search(r"^uses-feature: name='android.hardware.touchscreen'", badging, re.M), "La app exige pantalla táctil"
+          minimum = re.search(r"^sdkVersion:'(\d+)'", badging, re.M)
+          assert minimum and int(minimum.group(1)) <= 34, "No es instalable en Android TV OS 14"
+          assert "versionName='1.1.5'" in badging and "versionCode='2007'" in badging, "Versión inesperada"
+          signature = subprocess.check_output([str(signer), "verify", "--verbose", "--print-certs", str(apk)], text=True)
+          output = pathlib.Path("dist")
+          output.mkdir(exist_ok=True)
+          destination = output / "TV-Paraguay-1.1.5-GoogleTV-Universal.apk"
+          shutil.copy2(apk, destination)
+          (output / "apk-badging.txt").write_text(badging)
+          (output / "apk-signature.txt").write_text(signature)
+          info = {
+              "filename": destination.name,
+              "version": "1.1.5+2007",
+              "abis": ["armeabi-v7a", "arm64-v8a"],
+              "sha256": hashlib.sha256(destination.read_bytes()).hexdigest(),
+              "bytes": destination.stat().st_size,
+              "minimum_api": int(minimum.group(1)),
+              "physical_jam_installation": "pending",
+          }
+          (output / "apk-verification.json").write_text(json.dumps(info, indent=2))
+          print(json.dumps(info, indent=2))
+          PY
+
+      - name: Guardar APK y verificación
         uses: actions/upload-artifact@v4
         with:
-          name: tv-paraguay-android
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: tv-paraguay-google-tv-universal
+          path: dist/*
           if-no-files-found: error
           retention-days: 14
